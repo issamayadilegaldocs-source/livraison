@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { route } from './[...slug]';
+import { route } from '../api/[...slug]';
 
 const appel = (chemin: string, method = 'GET') => route(new Request(`https://demo.vercel.app${chemin}`, { method }));
 

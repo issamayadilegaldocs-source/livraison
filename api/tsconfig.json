@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "module": "commonjs", "moduleResolution": "node", "noEmit": false, "incremental": false, "plugins": [] },
+  "include": ["./*.ts", "../lib/**/*.ts", "../.build/*.json"]
+}
