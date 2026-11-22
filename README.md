@@ -224,3 +224,14 @@ Pour `npm run local`, mettre `BON_SECRET=...` et `CONFIG_CLE=...` dans `.dev.var
 - **Commande** : la Function recalcule le total (options et frais compris), refuse un resto fermé ou une adresse hors zone, envoie l'email au livreur, puis le client envoie le message WhatsApp pré-rempli (écran « Dernière étape », avec Réessayer / Copier / Appeler si besoin).
 - **Réglages du livreur** (page de config) : pause et horaires (bandeau sur l'accueil et la page resto, commande bloquée), frais de livraison, prix corrigés et plats indisponibles.
 - **Bon de commande** : une image sans données client, que le livreur transfère au resto. Elle est dessinée sur le téléphone du client et gardée 7 jours ; le lien est dans le message WhatsApp et dans l'email.
+
+## Démo gratuite sur Vercel + Supabase
+
+Même code que Cloudflare : le site reste un export statique (`out/`), et `api/[...slug].ts` (Vercel Function) route `/api/*` vers `lib/serveur.ts`. `vercel.json` fixe `framework: null`, `outputDirectory: out`, `cleanUrls`.
+
+1. Supabase : créer un projet, exécuter `supabase/schema.sql` dans SQL Editor, créer le bucket Storage privé `bons` s'il n'existe pas.
+2. Vercel (plan Hobby) : importer le repo GitHub. Variables d'environnement (Production) :
+   `CLIENT` (dossier de `clients/`, ex. `ahmed`), `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (secrète, serveur seulement), `BON_SECRET`, `CONFIG_CLE`, et au besoin `RESEND_API_KEY`, `MAIL_FROM`, `SITE_URL` (URL de prod `https://….vercel.app`), `MEDIA_BASE_URL`.
+3. Tester sur le domaine de **production** : les URLs de preview sont derrière la connexion Vercel.
+
+Limites de la démo : pas de R2 (Supabase Storage à la place), pas de rate limiting Cloudflare devant `/api/*`.

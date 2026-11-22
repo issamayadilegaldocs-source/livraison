@@ -9,3 +9,6 @@ out/
 media/
 .wrangler/
 .dev.vars
+
+secrets/
+deploy-*.log
