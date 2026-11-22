@@ -1,0 +1,23 @@
+{
+ "id": 1112,
+ "name": "Mini Market Sallemi",
+ "phone": "44283797",
+ "address": "Rue Mohamed Khedher Houssine",
+ "logo": "2026-01-30-697ccde95653e.png",
+ "cover_photo": "2026-01-30-697ccdea40343.png",
+ "avg_rating": "0.0",
+ "rating": [
+  0,
+  0,
+  0,
+  0,
+  0
+ ],
+ "delivery_time": "- Minute",
+ "order_count": 0,
+ "active": true,
+ "status": 1,
+ "slug": "mini-market-sallemi",
+ "latitude": "34.74844395292599",
+ "longitude": "10.754714012145998"
+}

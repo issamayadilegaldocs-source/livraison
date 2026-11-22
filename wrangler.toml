@@ -1,0 +1,10 @@
+# Cloudflare Pages : un projet par livreur (nom = dossier dans clients/), même code et même config.
+# Déploiement : npm run deploy -- <client>. Secrets (par projet) : voir README.
+name = "livreur-site"
+pages_build_output_dir = "out"
+compatibility_date = "2026-11-01"
+
+# Bucket R2 privé des bons de commande (partagé par tous les livreurs ; règle de cycle de vie : 7 jours).
+[[r2_buckets]]
+binding = "BONS"
+bucket_name = "livreur-bons"

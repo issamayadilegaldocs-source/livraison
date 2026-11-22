@@ -1,0 +1,29 @@
+# Site livreur sur la VM preprod (88.96.34.1), à côté de l'API.
+# Projet compose séparé, branché sur le réseau "vm_default" du compose de l'API
+# pour que Caddy (vm-caddy-1) le joigne par le nom "livreur".
+# Sur la VM :  cd ~/hamma/livreur-site/deploy && sudo docker compose up -d --build
+# Images : ~/hamma/livreur-media (sortie de `npm run images`), montées en lecture seule.
+# Secrets (TELEGRAM_*, RESEND_API_KEY) : ./livreur.env sur la VM, jamais commité.
+services:
+  livreur:
+    build: ..
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      MEDIA_BASE_URL: /media
+      BONS_DIR: /bons
+    env_file:
+      - path: livreur.env
+        required: false
+    volumes:
+      - ../../livreur-media:/app/public/media:ro
+      - ../../livreur-bons:/bons
+    expose:
+      - "3000"
+    networks:
+      vm_default:
+        aliases: [livreur]
+
+networks:
+  vm_default:
+    external: true

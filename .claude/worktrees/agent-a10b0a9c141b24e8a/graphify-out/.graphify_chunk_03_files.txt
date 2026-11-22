@@ -1,0 +1,22 @@
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/public/assets/images/png/logo.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/public/assets/images/png/webBanner.webp
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/public/assets/images/png/Amazing support.webp
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/public/assets/images/png/CustomerApp.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/public/assets/images/png/Growth.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/public/assets/images/png/deliverToCustomer.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/public/assets/images/png/deliveryFee.webp
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/public/assets/images/png/GetMoreOrders.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/public/assets/images/png/Banner2.webp
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/Boost_online_sales.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/home_icon.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/Power_online_sales_Boost_sales.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/we_do_heavy_lifting.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/risk_free.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/become_store.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/reach_New_Customer.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/rest_icon.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/enatega-logo.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/rider_icon.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-web/lib/assets/gif/logo.gif
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/home_icon.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/splash.png

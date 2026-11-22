@@ -1,0 +1,41 @@
+{
+  "name": "livreur-site",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "node scripts/preparer.mjs && next dev",
+    "build": "node scripts/preparer.mjs && next build",
+    "test": "vitest run",
+    "import": "node scripts/import.mjs",
+    "images": "node scripts/images.mjs",
+    "envoyer-images": "node scripts/envoyer-images.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "deploy-tous": "node scripts/deploy-tous.mjs",
+    "vapid": "node scripts/vapid.mjs",
+    "local": "npx wrangler pages dev out"
+  },
+  "dependencies": {
+    "leaflet": "1.9.4",
+    "next": "15.5.29",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.13",
+    "@types/leaflet": "1.9.20",
+    "@types/node": "22.18.6",
+    "@types/react": "19.1.13",
+    "@types/react-dom": "19.1.9",
+    "aws4fetch": "^1.0.20",
+    "sharp": "0.35.5",
+    "tailwindcss": "4.1.13",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4",
+    "wrangler": "^4.164.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

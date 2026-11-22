@@ -1,0 +1,35 @@
+cd livreur-site
+
+# 1. Arrêter le dev server (port 3000) s'il tourne encore
+Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+
+# 2. Générer une clé
+$cle = node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"
+$cle
+
+# 3. La mettre dans .dev.vars (remplace la ligne CONFIG_CLE existante)
+(Get-Content .dev.vars) -replace '^CONFIG_CLE=.*', "CONFIG_CLE=$cle" | Set-Content .dev.vars -Encoding utf8
+
+# 4. Build du client ahmed (génère out/)
+$env:CLIENT = "ahmed"
+npm run build
+
+# 5. Lancer site + Functions (http://localhost:8788)
+npm run local
+
+Puis ouvre dans le navigateur (remplace <cle> par la valeur affichée à l'étape 2) :
+
+http://localhost:8788/api/config?cle=<cle>
+
+Pour relire la clé plus tard : Get-Content .dev.vars | Select-String CONFIG_CLE.
+
+
+
+
+
+npx wrangler pages dev out --port 8790 --ip 0.0.0.0	
+
+
+ npm run deploy -- issam
+
+https://app.brevo.com/

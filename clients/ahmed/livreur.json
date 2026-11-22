@@ -1,0 +1,17 @@
+{
+  "nom": "Ahmed Livraison",
+  "slogan": "Tous les restos et commerces de Sfax livrés chez vous.",
+  "couleur": "#1A6BE0",
+  "whatsapp": "21693028832",
+  "email": "mohamedissamdinayadi@gmail.com",
+  "ville": "Sfax",
+  "telegram": { "chatId": "6193890121", "appel": "@behyil" },
+  "livraison": {
+    "base": 1,
+    "parKm": 0.5,
+    "min": 1,
+    "max": 12,
+    "rayonMaxKm": 15,
+    "facteurRoute": 1.3
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "nom": "Speedy Livraison",
+  "slogan": "Tous les restos de Sfax livrés chez vous.",
+  "couleur": "#1A6BE0",
+  "whatsapp": "21699000001",
+  "email": "mohamedissamdinayadi@gmail.com",
+  "ville": "Sfax",
+  "livraison": {
+    "base": 1,
+    "parKm": 0.5,
+    "min": 1,
+    "max": 12,
+    "rayonMaxKm": 15,
+    "facteurRoute": 1.3
+  }
+}

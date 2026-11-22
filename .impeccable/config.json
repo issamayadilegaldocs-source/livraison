@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "plus jakarta sans",
+        "createdAt": "2026-11-18T22:18:25.067Z",
+        "reason": "user confirmed: same existing font, lowercase variant"
+      }
+    ]
+  }
+}

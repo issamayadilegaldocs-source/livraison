@@ -1,0 +1,168 @@
+{
+ "id": 1,
+ "name": "Baguette & Baguette",
+ "phone": "+21623045314",
+ "address": "Carrefour, Av. de Carthage, Sfax 3027",
+ "logo": "2023-11-24-6560c54149e21.jpeg",
+ "cover_photo": "2023-11-24-6560c5414b31b.jpeg",
+ "avg_rating": "3.2",
+ "rating": [
+  17,
+  7,
+  8,
+  3,
+  15
+ ],
+ "delivery_time": "30-45 Min",
+ "schedules": [
+  {
+   "id": 11839,
+   "restaurant_id": 1,
+   "day": 1,
+   "opening_time": "11:00:00",
+   "closing_time": "21:00:00",
+   "created_at": null,
+   "updated_at": null
+  },
+  {
+   "id": 11840,
+   "restaurant_id": 1,
+   "day": 2,
+   "opening_time": "11:00:00",
+   "closing_time": "21:00:00",
+   "created_at": null,
+   "updated_at": null
+  },
+  {
+   "id": 12198,
+   "restaurant_id": 1,
+   "day": 4,
+   "opening_time": "11:00:00",
+   "closing_time": "21:00:00",
+   "created_at": null,
+   "updated_at": null
+  },
+  {
+   "id": 22262,
+   "restaurant_id": 1,
+   "day": 3,
+   "opening_time": "11:00:00",
+   "closing_time": "21:00:00",
+   "created_at": null,
+   "updated_at": null
+  },
+  {
+   "id": 38489,
+   "restaurant_id": 1,
+   "day": 5,
+   "opening_time": "11:00:00",
+   "closing_time": "21:00:00",
+   "created_at": null,
+   "updated_at": null
+  },
+  {
+   "id": 38490,
+   "restaurant_id": 1,
+   "day": 6,
+   "opening_time": "11:00:00",
+   "closing_time": "21:00:00",
+   "created_at": null,
+   "updated_at": null
+  },
+  {
+   "id": 38491,
+   "restaurant_id": 1,
+   "day": 0,
+   "opening_time": "11:00:00",
+   "closing_time": "21:00:00",
+   "created_at": null,
+   "updated_at": null
+  }
+ ],
+ "cuisine": [
+  {
+   "id": 1,
+   "name": "Méditerranéenne",
+   "image": "2023-12-22-6584d76dd6504.webp"
+  },
+  {
+   "id": 4,
+   "name": "Turque",
+   "image": "2023-12-22-6584d7b210556.webp"
+  },
+  {
+   "id": 5,
+   "name": "Française",
+   "image": "2023-12-22-6584d7c3a390b.webp"
+  },
+  {
+   "id": 9,
+   "name": "Américaine",
+   "image": "2023-12-22-6584d7eb15c79.webp"
+  }
+ ],
+ "categories": [
+  {
+   "id": 25,
+   "name": "Ciabatta"
+  },
+  {
+   "id": 3,
+   "name": "Sandwich"
+  },
+  {
+   "id": 2,
+   "name": "Burger"
+  },
+  {
+   "id": 9,
+   "name": "Tacos"
+  },
+  {
+   "id": 118,
+   "name": "Box"
+  },
+  {
+   "id": 18,
+   "name": "Chicken"
+  },
+  {
+   "id": 26,
+   "name": "Frite"
+  },
+  {
+   "id": 14,
+   "name": "Salades"
+  },
+  {
+   "id": 72,
+   "name": "Menu Enfant"
+  },
+  {
+   "id": 127,
+   "name": "Menu Salades"
+  },
+  {
+   "id": 130,
+   "name": "Menu Ciabatta"
+  },
+  {
+   "id": 131,
+   "name": "Menu Tacos"
+  },
+  {
+   "id": 219,
+   "name": "Menu Sandwichs"
+  },
+  {
+   "id": 220,
+   "name": "Menu Burger"
+  }
+ ],
+ "order_count": 1071,
+ "active": true,
+ "status": 1,
+ "slug": "baguette-baguette",
+ "latitude": "34.74087420879657",
+ "longitude": "10.757690317155566"
+}

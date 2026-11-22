@@ -1,0 +1,82 @@
+🪵  Writing logs to "C:\Users\moham\AppData\Roaming\xdg.config\.wrangler\logs\wrangler-2026-11-21_10-18-33_266.log"
+.env file not found at "C:\Users\moham\Desktop\delivery\livreur seul\livreur-site\.env". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+
+ ⛅️ wrangler 4.164.0
+────────────────────
+Configuration file belonging to ⚡️ Pages ⚡️ project detected.
+Metrics dispatcher: Posting data {"deviceId":"068ed715-7617-4c7e-83a8-1e31987e5acd","event":"wrangler command started","timestamp":1795256313822,"properties":{"amplitude_session_id":1795256313780,"amplitude_event_id":0,"wranglerVersion":"4.164.0","wranglerMajorVersion":4,"wranglerMinorVersion":164,"wranglerPatchVersion":0,"osPlatform":"Windows","osVersion":"Windows 11 Home","nodeVersion":22,"packageManager":"npm","isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":"claude-code","argsUsed":["branch","projectName"],"argsCombination":"branch, projectName","sanitizedCommand":"pages deploy","sanitizedArgs":{},"currentAgentSkillsInstalled":false}}
+-- START CF API REQUEST: GET https://api.cloudflare.com/client/v4/accounts/e049f912cb1598c5088f7df347ca1c69/pages/projects/issam
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API REQUEST
+-- START CF API RESPONSE: OK 200
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API RESPONSE
+Pages-to-Workers delegation skipped: unsupported args: --branch, --commit-dirty
+pages deploy: Detecting git repository information...
+pages deploy: Git repository detected
+pages deploy: Working directory dirty status: true
+pages deploy: Using provided branch: "main"
+pages deploy: Detected commit hash: "fd14793ea9bc1d7cbd75ffe82019597041ad23cd"
+pages deploy: Detected commit message: "feat(livreur-site): rider push alerts (Web Push, V..."
+pages deploy: Git information summary - branch: main, commitHash: fd14793ea9bc1d7cbd75ffe82019597041ad23cd, commitDirty: true
+Metrics dispatcher: Posting data {"deviceId":"068ed715-7617-4c7e-83a8-1e31987e5acd","event":"delegate pages to workers","timestamp":1795256317883,"properties":{"amplitude_session_id":1795256317534,"amplitude_event_id":0,"wranglerVersion":"4.164.0","wranglerMajorVersion":4,"wranglerMinorVersion":164,"wranglerPatchVersion":0,"osPlatform":"Windows","osVersion":"Windows 11 Home","nodeVersion":22,"packageManager":"npm","isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":"claude-code","category":"Workers","os":"win32:x64","command":"deploy","result":"ineligible","reason":"unsupported_args","forceUsed":false,"currentAgentSkillsInstalled":false}}
+-- START CF API REQUEST: GET https://api.cloudflare.com/client/v4/accounts/e049f912cb1598c5088f7df347ca1c69/pages/projects/issam
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API REQUEST
+-- START CF API RESPONSE: OK 200
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API RESPONSE
+Configuration file belonging to ⚡️ Pages ⚡️ project detected.
+✨ Compiled Worker successfully
+-- START CF API REQUEST: GET https://api.cloudflare.com/client/v4/accounts/e049f912cb1598c5088f7df347ca1c69/pages/projects/issam/upload-token
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API REQUEST
+-- START CF API RESPONSE: OK 200
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API RESPONSE
+-- START CF API REQUEST: GET https://api.cloudflare.com/client/v4/accounts/e049f912cb1598c5088f7df347ca1c69/pages/projects/issam/upload-token
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API REQUEST
+-- START CF API RESPONSE: OK 200
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API RESPONSE
+-- START CF API REQUEST: POST https://api.cloudflare.com/client/v4/pages/assets/check-missing
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API REQUEST
+-- START CF API RESPONSE: OK 200
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API RESPONSE
+Uploading... (0/974)
+POST /pages/assets/upload
+-- START CF API REQUEST: POST https://api.cloudflare.com/client/v4/pages/assets/upload
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API REQUEST
+POST /pages/assets/upload
+-- START CF API REQUEST: POST https://api.cloudflare.com/client/v4/pages/assets/upload
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API REQUEST
+POST /pages/assets/upload
+-- START CF API REQUEST: POST https://api.cloudflare.com/client/v4/pages/assets/upload
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+-- END CF API REQUEST

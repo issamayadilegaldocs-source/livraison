@@ -1,0 +1,577 @@
+{
+ "products": [
+  {
+   "id": 582,
+   "name": "Ciabatta Zinger Fondant",
+   "description": "Escalope De Dinde Panné ,  Oignons Caramélisés, Poivron Grillée, Creamy Sauce, Ranch Sauce",
+   "image": "2024-11-13-673468db821db.jpg",
+   "price": 12.5,
+   "discount": 0,
+   "discount_type": "amount",
+   "category_id": 25,
+   "variations": [
+    {
+     "name": "Choisissez Votre Sauce",
+     "type": "multi",
+     "min": "1",
+     "max": "4",
+     "required": "off",
+     "values": [
+      {
+       "label": "Mayonnaise",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Harissa",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sauce à l'Ail",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Ketchup",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sauce Chili",
+       "optionPrice": "0"
+      }
+     ]
+    },
+    {
+     "name": "Choisissez",
+     "type": "multi",
+     "min": "1",
+     "max": "4",
+     "required": "off",
+     "values": [
+      {
+       "label": "Sans Poivron",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sans Oignons",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Avec Laitue",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Avec Tomate",
+       "optionPrice": "0"
+      }
+     ]
+    },
+    {
+     "name": "Supplément",
+     "type": "multi",
+     "min": "1",
+     "max": "15",
+     "required": "off",
+     "values": [
+      {
+       "label": "Zinger",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Poulet Grillée",
+       "optionPrice": "3.9"
+      },
+      {
+       "label": "Spicy Chicken",
+       "optionPrice": "3.9"
+      },
+      {
+       "label": "Chicken Panée",
+       "optionPrice": "3.3"
+      },
+      {
+       "label": "Cordon Bleu",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Bacon",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Jambon",
+       "optionPrice": "1.5"
+      },
+      {
+       "label": "Thon",
+       "optionPrice": "2.5"
+      },
+      {
+       "label": "Cheddar",
+       "optionPrice": "2"
+      },
+      {
+       "label": "Fromage Priomo Salé",
+       "optionPrice": "2.7"
+      },
+      {
+       "label": "Fromage Slice",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Œuf",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Maïs",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Champignons",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Croûtons",
+       "optionPrice": "0.4"
+      },
+      {
+       "label": "Alaska",
+       "optionPrice": "2.5"
+      }
+     ]
+    }
+   ],
+   "add_ons": [],
+   "status": 1,
+   "order_count": 34
+  },
+  {
+   "id": 583,
+   "name": "Ciabatta Fermier Fondant",
+   "description": "Escalop de Dinde Grillé, Oignons Caramélisés, Poivron Grillé, Creamy Sauce, Sauce à L’ail",
+   "image": "2024-11-13-6734694f0df36.jpg",
+   "price": 12.5,
+   "discount": 0,
+   "discount_type": "amount",
+   "category_id": 25,
+   "variations": [
+    {
+     "name": "Choisissez Votre Sauce",
+     "type": "multi",
+     "min": "1",
+     "max": "4",
+     "required": "off",
+     "values": [
+      {
+       "label": "Mayonnaise",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Harissa",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sauce à l'Ail",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Ketchup",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sauce Chili",
+       "optionPrice": "0"
+      }
+     ]
+    },
+    {
+     "name": "Choisissez",
+     "type": "multi",
+     "min": "1",
+     "max": "4",
+     "required": "off",
+     "values": [
+      {
+       "label": "Sans Poivron",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sans Oignons",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Avec Laitue",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Avec Tomate",
+       "optionPrice": "0"
+      }
+     ]
+    },
+    {
+     "name": "Supplément",
+     "type": "multi",
+     "min": "1",
+     "max": "15",
+     "required": "off",
+     "values": [
+      {
+       "label": "Zinger",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Poulet Grillée",
+       "optionPrice": "3.9"
+      },
+      {
+       "label": "Spicy Chicken",
+       "optionPrice": "3.9"
+      },
+      {
+       "label": "Chicken Panée",
+       "optionPrice": "3.3"
+      },
+      {
+       "label": "Cordon Bleu",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Bacon",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Jambon",
+       "optionPrice": "1.5"
+      },
+      {
+       "label": "Thon",
+       "optionPrice": "2.5"
+      },
+      {
+       "label": "Cheddar",
+       "optionPrice": "2"
+      },
+      {
+       "label": "Fromage Priomo Salé",
+       "optionPrice": "2.7"
+      },
+      {
+       "label": "Fromage Slice",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Œuf",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Maïs",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Champignons",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Croûtons",
+       "optionPrice": "0.4"
+      },
+      {
+       "label": "Alaska",
+       "optionPrice": "2.5"
+      }
+     ]
+    }
+   ],
+   "add_ons": [],
+   "status": 1,
+   "order_count": 8
+  },
+  {
+   "id": 584,
+   "name": "Ciabatta Beef Fondant",
+   "description": "Emincé De Beef  , Oignons Caramélisés, Poivron Grillé, Sauce Cheddar, Mayonnaise , Lettuce , Tomato",
+   "image": "2024-11-13-67346c90cbfc0.jpg",
+   "price": 12.9,
+   "discount": 0,
+   "discount_type": "amount",
+   "category_id": 25,
+   "variations": [
+    {
+     "name": "Choisissez Votre Sauce",
+     "type": "multi",
+     "min": "1",
+     "max": "4",
+     "required": "off",
+     "values": [
+      {
+       "label": "Mayonnaise",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Harissa",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sauce à l'Ail",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Ketchup",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sauce Chili",
+       "optionPrice": "0"
+      }
+     ]
+    },
+    {
+     "name": "Choisissez",
+     "type": "multi",
+     "min": "1",
+     "max": "4",
+     "required": "off",
+     "values": [
+      {
+       "label": "Sans Poivron",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sans Oignons",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Avec Laitue",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Avec Tomate",
+       "optionPrice": "0"
+      }
+     ]
+    },
+    {
+     "name": "Supplément",
+     "type": "multi",
+     "min": "1",
+     "max": "15",
+     "required": "off",
+     "values": [
+      {
+       "label": "Zinger",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Poulet Grillée",
+       "optionPrice": "3.9"
+      },
+      {
+       "label": "Spicy Chicken",
+       "optionPrice": "3.9"
+      },
+      {
+       "label": "Chicken Panée",
+       "optionPrice": "3.3"
+      },
+      {
+       "label": "Cordon Bleu",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Bacon",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Jambon",
+       "optionPrice": "1.5"
+      },
+      {
+       "label": "Thon",
+       "optionPrice": "2.5"
+      },
+      {
+       "label": "Cheddar",
+       "optionPrice": "2"
+      },
+      {
+       "label": "Fromage",
+       "optionPrice": "2.5"
+      },
+      {
+       "label": "Fromage Slice",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Œuf",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Maïs",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Champignons",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Croûtons",
+       "optionPrice": "0.4"
+      },
+      {
+       "label": "Alaska",
+       "optionPrice": "2.5"
+      },
+      {
+       "label": "FROMAGE PRIMO SALE",
+       "optionPrice": "2.7"
+      }
+     ]
+    }
+   ],
+   "add_ons": [],
+   "status": 1,
+   "order_count": 10
+  },
+  {
+   "id": 534,
+   "name": "Sandwich Cordon Bleu",
+   "description": "Tomates, Laitue, Sauce, Cheddar, Cordon Bleu, Suce Mayonnaise",
+   "image": "baguette_baguette/vmhlk6m311mu7vpughbb.webp",
+   "price": 8.9,
+   "discount": 0,
+   "discount_type": "amount",
+   "category_id": 3,
+   "variations": [
+    {
+     "name": "Choisissez La Taille De Votre Sandwich",
+     "type": "single",
+     "min": 0,
+     "max": 0,
+     "required": "on",
+     "values": [
+      {
+       "label": "L Baguette",
+       "optionPrice": "0"
+      },
+      {
+       "label": "XL Baguette",
+       "optionPrice": "4.9"
+      }
+     ]
+    },
+    {
+     "name": "Choisissez Vos Sauce",
+     "type": "multi",
+     "min": "1",
+     "max": "4",
+     "required": "off",
+     "values": [
+      {
+       "label": "Mayonnaise",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Harissa",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sauce à l'Ail",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Ketchup",
+       "optionPrice": "0"
+      }
+     ]
+    },
+    {
+     "name": "Choisissez",
+     "type": "multi",
+     "min": "1",
+     "max": "2",
+     "required": "off",
+     "values": [
+      {
+       "label": "Sans Laitue",
+       "optionPrice": "0"
+      },
+      {
+       "label": "Sans Tomate",
+       "optionPrice": "0"
+      }
+     ]
+    },
+    {
+     "name": "Supplément",
+     "type": "multi",
+     "min": "1",
+     "max": "15",
+     "required": "off",
+     "values": [
+      {
+       "label": "Zinger",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Poulet Grillé",
+       "optionPrice": "4"
+      },
+      {
+       "label": "Spicy Chicken",
+       "optionPrice": "4"
+      },
+      {
+       "label": "Chicken Panée",
+       "optionPrice": "3.49"
+      },
+      {
+       "label": "Cordon Bleu",
+       "optionPrice": "3.9"
+      },
+      {
+       "label": "Bacon",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Jambon",
+       "optionPrice": "1.5"
+      },
+      {
+       "label": "Thon",
+       "optionPrice": "2.9"
+      },
+      {
+       "label": "Cheddar Cheese Sauce",
+       "optionPrice": "2"
+      },
+      {
+       "label": "Fromage Priomo Salé",
+       "optionPrice": "2.5"
+      },
+      {
+       "label": "Fromage Slice",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Œuf",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Maïs",
+       "optionPrice": "1"
+      },
+      {
+       "label": "Champignons",
+       "optionPrice": "3.5"
+      },
+      {
+       "label": "Croûtons",
+       "optionPrice": "0.4"
+      }
+     ]
+    }
+   ],
+   "add_ons": [],
+   "status": 1,
+   "order_count": 37
+  }
+ ]
+}

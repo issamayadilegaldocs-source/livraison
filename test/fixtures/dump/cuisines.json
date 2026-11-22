@@ -1,0 +1,34 @@
+{
+ "Cuisines": [
+  {
+   "id": 1,
+   "name": "Méditerranéenne",
+   "image": "2023-12-22-6584d76dd6504.webp",
+   "status": 1
+  },
+  {
+   "id": 2,
+   "name": "Maghrébine",
+   "image": "2023-12-22-6584d78ad357c.webp",
+   "status": 1
+  },
+  {
+   "id": 3,
+   "name": "Italienne",
+   "image": "2023-12-22-6584d7bc05f77.webp",
+   "status": 1
+  },
+  {
+   "id": 4,
+   "name": "Turque",
+   "image": "2023-12-22-6584d7b210556.webp",
+   "status": 1
+  },
+  {
+   "id": 5,
+   "name": "Française",
+   "image": "2023-12-22-6584d7c3a390b.webp",
+   "status": 1
+  }
+ ]
+}

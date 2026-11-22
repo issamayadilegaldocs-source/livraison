@@ -1,0 +1,44 @@
+/*****************************
+* environment.js
+* path: '/environment.js' (root of your project)
+******************************/
+
+import Constants from 'expo-constants';
+
+const ENV = {
+	    development: {
+	        GRAPHQL_URL:'' ,
+	        SERVER_URL: '', // put / at the end of server url
+	        IOS_CLIENT_ID_GOOGLE: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+	        ANDROID_CLIENT_ID_GOOGLE: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+	        EXPO_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID,
+	        AMPLITUDE_API_KEY: process.env.EXPO_PUBLIC_AMPLITUDE_API_KEY,
+	        GOOGLE_MAPS_KEY: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
+	        SENTRY_DSN: process.env.EXPO_PUBLIC_SENTRY_DSN,
+	    },
+	    production: {
+	       GRAPHQL_URL:'' ,
+	        SERVER_URL: '', // put / at the end of server url
+	        IOS_CLIENT_ID_GOOGLE: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+	        ANDROID_CLIENT_ID_GOOGLE: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+	        EXPO_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID,
+	        AMPLITUDE_API_KEY: process.env.EXPO_PUBLIC_AMPLITUDE_API_KEY,
+	        GOOGLE_MAPS_KEY: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
+	        SENTRY_DSN: process.env.EXPO_PUBLIC_SENTRY_DSN,
+	    }
+	};
+
+const getEnvVars = (env = Constants.manifest.releaseChannel) => {
+    // What is __DEV__ ?
+    // This variable is set to true when react-native is running in Dev mode.
+    // __DEV__ is true when run locally, but false when published.
+    if (__DEV__) {
+        return ENV.development;
+    } else if (env === 'production') {
+        return ENV.production;
+    } else {
+        return ENV.development;
+    }
+};
+
+export default getEnvVars;

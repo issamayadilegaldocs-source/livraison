@@ -1,0 +1,6 @@
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-app/src/assets/icons/verfiedmark64.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-app/src/assets/icons/downArrow.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-store/lib/assets/video/mobile-splash.mp4
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-store/lib/assets/sound/beep3.mp3
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/video/mobile-splash.mp4
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/sound/beep3.mp3

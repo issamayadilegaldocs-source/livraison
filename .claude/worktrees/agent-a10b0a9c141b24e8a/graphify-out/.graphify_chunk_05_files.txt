@@ -1,0 +1,22 @@
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/images/react-logo.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/images/appIcon.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/images/black_bg.jpg
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/images/transparent.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/images/splash-icon.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/images/Downloads/Resturnt icon.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-rider/lib/assets/images/Downloads/Rider icon.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-admin/public/favicon.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-admin/public/favsicons.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/enatega-multivendor-admin/public/assets/images/png/logo.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/rider1.jpeg
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/Rider-app-logo.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/customer1.jpeg
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/amplitude.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/LOGOS-FOR-ENATGEA-res.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/Admin.webp
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/restaurant1.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/Untitled-1-11.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/Customer-app.webp
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/logooo.png
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/high-level.webp
+/Users/mohamedalijallouli/Documents/delivery/food-delivery-multivendor/assets/Multi Service Solution.webp

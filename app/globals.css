@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+/* Palette reprise de hamma-web ; --couleur vient de livreur.json (body style). */
+:root {
+  --ink: #16213f;
+  --cream: #f4f8ff;
+  --saffron: #ffc83d; /* étoiles et badges uniquement, jamais du texte */
+  --muted: #4b5563;
+  --couleur: #1a6be0;
+  --entete: calc(4rem + env(safe-area-inset-top)); /* hauteur de l'en-tête collant, 0 quand il est masqué */
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-cream: var(--cream);
+  --color-saffron: var(--saffron);
+  --color-muted: var(--muted);
+  --color-primary: var(--couleur);
+  --font-sans: var(--font-jakarta), system-ui, sans-serif;
+}
+
+/* Arabe : police avec les lettres arabes ; le latin (noms de plats, chiffres) retombe sur Jakarta. */
+html[dir='rtl'] body {
+  font-family: var(--font-arabe), var(--font-jakarta), system-ui, sans-serif;
+}
+
+body {
+  background: var(--cream);
+  color: var(--ink);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+dialog::backdrop {
+  background: rgb(22 33 63 / 0.55);
+}
+
+/* Téléphone / tablette : l'en-tête se cache quand on descend, revient quand on remonte (MasquerEntete). */
+.entete {
+  transition: transform 0.2s;
+}
+@media (max-width: 1023.98px) {
+  html[data-entete='cache'] {
+    --entete: 0px;
+  }
+  html[data-entete='cache'] .entete {
+    transform: translateY(-100%);
+  }
+}
