@@ -9,7 +9,10 @@ import { fileURLToPath } from 'node:url';
 export function choisirClient(env = process.env, racine = '.') {
   const dossier = path.join(racine, 'clients');
   const clients = fs.existsSync(dossier) ? fs.readdirSync(dossier).filter((d) => fs.existsSync(path.join(dossier, d, 'livreur.json'))) : [];
-  const client = env.CLIENT || (clients.length === 1 ? clients[0] : null);
+  // Sur Vercel, CLIENT n'est pas toujours posé : on le déduit du nom du projet / de l'URL de prod s'il ne désigne qu'un client.
+  const indice = [env.VERCEL_PROJECT_NAME, env.VERCEL_PROJECT_PRODUCTION_URL].filter(Boolean).join(' ').toLowerCase();
+  const parNom = clients.filter((c) => indice.includes(c.toLowerCase()));
+  const client = env.CLIENT || (parNom.length === 1 ? parNom[0] : null) || (clients.length === 1 ? clients[0] : null);
   if (!client) throw new Error(`Précise le client : CLIENT=<dossier> parmi clients/ (${clients.join(', ') || 'aucun'}).`);
   if (!clients.includes(client)) throw new Error(`Client inconnu : clients/${client}/livreur.json n'existe pas.`);
   return client;

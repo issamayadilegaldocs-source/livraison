@@ -21,6 +21,13 @@ describe('choisirClient / preparer', () => {
     expect(() => choisirClient({}, r)).toThrow(/CLIENT/);
     expect(choisirClient({ CLIENT: 'sami' }, r)).toBe('sami');
   });
+  it('déduit le client du projet Vercel, sauf si ambigu', () => {
+    const r = racineAvec(['issam', 'speedy']);
+    expect(choisirClient({ VERCEL_PROJECT_NAME: 'issam-livraison' }, r)).toBe('issam');
+    expect(choisirClient({ VERCEL_PROJECT_PRODUCTION_URL: 'speedy.vercel.app' }, r)).toBe('speedy');
+    expect(() => choisirClient({ VERCEL_PROJECT_NAME: 'livraison' }, r)).toThrow(/CLIENT/);
+    expect(choisirClient({ CLIENT: 'speedy', VERCEL_PROJECT_NAME: 'issam' }, r)).toBe('speedy');
+  });
   it('refuse un client inconnu', () => expect(() => choisirClient({ CLIENT: 'x' }, racineAvec(['ali']))).toThrow(/inconnu/));
   it('copie la config du client dans .build/livreur.json (jamais celle d’un autre)', () => {
     const r = racineAvec(['ali', 'sami']);

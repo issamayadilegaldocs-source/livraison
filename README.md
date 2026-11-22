@@ -190,7 +190,7 @@ Un site statique est téléchargeable : on ne peut pas empêcher un script patie
 | Projet Pages (secret) | `VAPID_JWK` | Optionnel : clé des alertes push du livreur (`npm run vapid`). Sans elle, pas d'alerte push. |
 | Projet Pages (secret) | `CALLMEBOT_APIKEY` | Optionnel : envoi WhatsApp automatique en plus (CallMeBot, inscriptions parfois fermées). |
 | Projet Pages (secret) | `TELEGRAM_BOT_TOKEN` | Optionnel : bot Telegram qui alerte le livreur (avec `telegram.chatId` dans `livreur.json`). |
-| Build | `CLIENT` | Client à construire (dossier de `clients/`). Inutile s'il n'y a qu'un client ; `npm run deploy` le règle. |
+| Build | `CLIENT` | Client à construire (dossier de `clients/`). Inutile s'il n'y a qu'un client ; `npm run deploy` le règle. Sur Vercel, sinon déduit si `VERCEL_PROJECT_NAME` / l'URL de prod contient le nom d'un seul client ; sinon le build échoue : pose `CLIENT` dans Settings → Environment Variables. |
 | Build | `MEDIA_BASE_URL_PROD` | Adresse des images pour `npm run deploy` (https obligatoire). |
 | Dev (`.env.local`) | `MEDIA_BASE_URL` | Base des images en dev. Par défaut le bucket R2. |
 | Dev (`.env.local`) | `R2_*` | Clés pour `npm run envoyer-images`. |
