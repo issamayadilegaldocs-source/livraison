@@ -185,6 +185,8 @@ Un site statique est téléchargeable : on ne peut pas empêcher un script patie
 | Projet Pages (secret) | `MAIL_FROM` | Expéditeur vérifié dans Resend. |
 | Projet Pages (secret) | `BON_SECRET` | Signe les bons de commande. Sans elle : pas de bon, la commande part quand même. |
 | Projet Pages (secret) | `CONFIG_CLE` | Clé du lien de config du livreur. Sans elle, pas de page de config (le site garde les réglages de `livreur.json`). |
+| Projet Pages (secret) | `SUPABASE_URL` | Optionnel : URL du projet Supabase (`https://<ref>.supabase.co`). Avec `SUPABASE_SECRET_KEY`, remplace R2 pour le backend (config, commandes, coupons, push, bons). |
+| Projet Pages (secret) | `SUPABASE_SECRET_KEY` | Clé secrète serveur Supabase (`sb_secret_…`, ou ancienne `SUPABASE_SERVICE_ROLE_KEY`). Jamais exposée au navigateur. |
 | Projet Pages (secret) | `VAPID_JWK` | Optionnel : clé des alertes push du livreur (`npm run vapid`). Sans elle, pas d'alerte push. |
 | Projet Pages (secret) | `CALLMEBOT_APIKEY` | Optionnel : envoi WhatsApp automatique en plus (CallMeBot, inscriptions parfois fermées). |
 | Projet Pages (secret) | `TELEGRAM_BOT_TOKEN` | Optionnel : bot Telegram qui alerte le livreur (avec `telegram.chatId` dans `livreur.json`). |
@@ -202,7 +204,7 @@ npm run build     # export statique dans out/
 npm run local     # sert out/ + les Functions comme Cloudflare : http://localhost:8788
 ```
 
-Pour `npm run local`, mettre `BON_SECRET=...` et `CONFIG_CLE=...` dans `.dev.vars` (non commité) ; le bucket des bons est simulé en local. Après avoir changé `.dev.vars`, arrête bien l'ancien `npm run local` : un serveur resté ouvert garde les anciennes valeurs. Ne passe pas `MEDIA_BASE_URL=/media` sur la ligne de commande sous Git Bash : `/media` y est réécrit en `C:/Program Files/Git/media`.
+Pour `npm run local`, mettre `BON_SECRET=...` et `CONFIG_CLE=...` dans `.dev.vars` (non commité) ; le bucket des bons est simulé en local. Pour brancher le backend sur **Supabase** au lieu de R2, exécuter `supabase/schema.sql` dans *Supabase Dashboard → SQL Editor*, puis ajouter `SUPABASE_URL` et `SUPABASE_SECRET_KEY` (`sb_secret_…`) dans `.dev.vars` (local) ou via `npx wrangler pages secret put` (prod). Après avoir changé `.dev.vars`, arrête bien l'ancien `npm run local` : un serveur resté ouvert garde les anciennes valeurs. Ne passe pas `MEDIA_BASE_URL=/media` sur la ligne de commande sous Git Bash : `/media` y est réécrit en `C:/Program Files/Git/media`.
 
 ## Ce que fait le site
 

@@ -18,10 +18,13 @@ import { messageArret, quand } from './service';
 import { appelerTelegram, envoyerTelegram, messageTelegram } from './telegram';
 import { envoyerWhatsApp } from './whatsapp';
 import { cleVapidPublique, endpointValide, envoyerPush, htmlPush } from './push';
-import { changerStatut, cleFiche, ficheColis, ficheRepas, htmlCommandes, ID_FICHE, lireFiche, prefixeFiches, vueCommandes, type Fiche, type Statut } from './historique';
+import { ficheColis, ficheRepas, htmlCommandes, ID_FICHE, vueCommandes, type Fiche, type Statut } from './historique';
+import { stockage, type EnvStockage, type SeauR2 } from './supabase';
+
+export type { SeauR2 };
 
 /** Variables et liaisons du projet Pages (secrets : Settings → Variables, ou `wrangler pages secret put`). */
-export type Env = {
+export type Env = EnvStockage & {
   RESEND_API_KEY?: string;
   /** Alternative simple à Resend (expéditeur validé par lien, sans DNS). Si présente, elle sert à tous les emails ; exige MAIL_FROM. */
   BREVO_API_KEY?: string;
@@ -29,23 +32,12 @@ export type Env = {
   CALLMEBOT_APIKEY?: string;
   /** Bot Telegram qui alerte le livreur (avec `telegram.chatId` dans livreur.json). Sans lui, pas d'alerte Telegram. */
   TELEGRAM_BOT_TOKEN?: string;
-  /** Clé HMAC des bons. Sans elle (ou sans BONS), pas de bon : la commande part quand même. */
+  /** Clé HMAC des bons. Sans elle (ou sans stockage), pas de bon : la commande part quand même. */
   BON_SECRET?: string;
   /** Clé privée VAPID (JWK, `npm run vapid`) des alertes push du livreur. Sans elle, pas d'alerte push. */
   VAPID_JWK?: string;
   /** Clé du lien de config du livreur (/api/config?cle=…). Sans elle, la page de config n'existe pas. */
   CONFIG_CLE?: string;
-  /** Bucket R2 privé des bons (règle de cycle de vie : suppression après 7 jours). */
-  BONS?: SeauR2;
-};
-
-/** Le sous-ensemble de l'API R2 utilisé ici (facile à simuler dans les tests). */
-export type SeauR2 = {
-  head(cle: string): Promise<unknown | null>;
-  get(cle: string): Promise<{ body: ReadableStream } | null>;
-  put(cle: string, valeur: Uint8Array | string, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>;
-  delete(cle: string): Promise<unknown>;
-  list(options: { prefix: string; limit?: number }): Promise<{ objects: { key: string }[] }>;
 };
 
 /** Resto + menu d'un restaurant (fichier statique /commande-data/<slug>) et base des images du build. */
@@ -76,7 +68,6 @@ export function autreOrigine(req: Request): boolean {
   return req.headers.get('sec-fetch-site') === 'cross-site';
 }
 const refus = () => erreur(403, 'Origine non autorisée.');
-const cleBon = (id: string) => `bons/${id}.png`;
 
 /**
  * POST /api/commande : valide et recalcule la commande (jamais les prix du client), envoie l'email au livreur
@@ -126,7 +117,8 @@ export async function traiterCommande(
   const maintenant = new Date();
 
   // Bon : identifiant signé ; le navigateur du client dessine l'image et l'envoie ensuite.
-  const idBon = env.BON_SECRET && env.BONS ? nouvelIdBon(ref) : null;
+  const store = stockage(env);
+  const idBon = env.BON_SECRET && store ? nouvelIdBon(ref) : null;
   const lienBon = idBon ? `${origine}/api/bon/${idBon}` : null;
   const bon = idBon ? { id: idBon, sig: await signerBon(idBon, env.BON_SECRET!), donnees: donneesBon(commande, livreur, ref, maintenant, media) } : null;
 
@@ -158,14 +150,15 @@ export async function traiterCommande(
   if (email !== 'sent') console.error('[commande] email non envoyé', { ref, email });
 
   // Le code compte comme utilisé dès que la commande est partie.
-  if (promoCode && commande.promo?.code === promoCode.code) await env.BONS?.put(`${prefixeUsage(livreur, promoCode.code!)}${ref}`, '1').catch(() => {});
+  if (promoCode && commande.promo?.code === promoCode.code) await store?.enregistrerUsageCoupon(livreur.whatsapp, promoCode.code!, ref).catch(() => {});
   return Response.json({ ref, total: commande.total, texteWhatsApp, numeroWhatsApp: livreur.whatsapp, email, whatsappAuto, bon });
 }
 
 /** POST /api/bon/<id>?sig=… : enregistre l'image du bon dessinée par le navigateur (une seule fois par id). */
 export async function recevoirBon(req: Request, env: Env, id: string): Promise<Response> {
   if (autreOrigine(req)) return refus();
-  if (!env.BON_SECRET || !env.BONS) return erreur(503, 'Bons désactivés.');
+  const store = stockage(env);
+  if (!env.BON_SECRET || !store) return erreur(503, 'Bons désactivés.');
   const sig = new URL(req.url).searchParams.get('sig') ?? '';
   if (!(await signatureValide(id, sig, env.BON_SECRET))) return erreur(403, 'Bon non autorisé.');
   if (Number(req.headers.get('content-length') ?? 0) > TAILLE_MAX_BON) return erreur(413, 'Image trop lourde.');
@@ -173,42 +166,34 @@ export async function recevoirBon(req: Request, env: Env, id: string): Promise<R
   if (png.length > TAILLE_MAX_BON) return erreur(413, 'Image trop lourde.');
   if (!estPng(png)) return erreur(400, 'Image invalide.');
   // Premier envoi seulement : un id signé ne peut pas servir à remplacer un bon déjà enregistré.
-  if (await env.BONS.head(cleBon(id))) return Response.json({ ok: true });
-  await env.BONS.put(cleBon(id), png, { httpMetadata: { contentType: 'image/png' } });
+  await store.enregistrerBon(id, png);
   return Response.json({ ok: true });
 }
 
-/** GET /api/bon/<id> : image du bon (lien du message WhatsApp). Expire avec la règle de cycle de vie du bucket. */
+/** GET /api/bon/<id> : image du bon (lien du message WhatsApp). Expire avec la règle de cycle de vie du stockage. */
 export async function servirBon(env: Env, id: string): Promise<Response> {
-  const objet = ID_BON.test(id) && env.BONS ? await env.BONS.get(cleBon(id)) : null;
-  if (!objet) return new Response('Bon introuvable ou expiré.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-  return new Response(objet.body, {
+  const store = stockage(env);
+  const body = ID_BON.test(id) && store ? await store.lireBon(id) : null;
+  if (!body) return new Response('Bon introuvable ou expiré.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  return new Response(body, {
     headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=604800', 'x-robots-tag': 'noindex' },
   });
 }
 
 // --- Config du livreur (pause, horaires, frais, prix des plats) -----------------------------------
-// Un objet R2 `config/<whatsapp>.json` dans le bucket des bons (partagé : le numéro distingue les livreurs).
-const cleConfig = (l: Livreur) => `config/${l.whatsapp}.json`;
-
+// Stocké dans Supabase (`livreur_configs`) ou R2 (`config/<whatsapp>.json`), indexé par numéro WhatsApp.
 export async function lireConfigR2(env: Env, livreur: Livreur): Promise<Config> {
-  const objet = env.BONS ? await env.BONS.get(cleConfig(livreur)) : null;
-  if (!objet) return lireConfig(null);
-  return lireConfig(await new Response(objet.body).json().catch(() => null));
+  const store = stockage(env);
+  return store ? store.lireConfig(livreur.whatsapp) : lireConfig(null);
 }
 
 async function ecrireConfig(env: Env, livreur: Livreur, c: Config): Promise<void> {
-  await env.BONS!.put(cleConfig(livreur), JSON.stringify(ConfigSchema.parse(c)), { httpMetadata: { contentType: 'application/json' } });
+  await stockage(env)!.ecrireConfig(livreur.whatsapp, c);
 }
 
-/** Utilisations d'un coupon : un petit fichier par commande passée avec ce code (pas de compteur à réécrire à deux). */
-const prefixeUsage = (l: Livreur, code: string) => `usages/${l.whatsapp}/${code}/`;
-
-// ponytail: deux commandes simultanées peuvent dépasser la limite d'une unité (pas de transaction sur R2) ; acceptable
-// pour une limite de promo, à remplacer par un Durable Object si une limite stricte devient nécessaire.
 async function nbUsages(env: Env, livreur: Livreur, code: string, plafond: number): Promise<number> {
-  if (!env.BONS) return 0;
-  return (await env.BONS.list({ prefix: prefixeUsage(livreur, code), limit: plafond + 1 })).objects.length;
+  const store = stockage(env);
+  return store ? store.nbUsagesCoupon(livreur.whatsapp, code, plafond) : 0;
 }
 
 /** POST /api/coupon {code, resto} : le code existe-t-il, et que donne-t-il ? (vue client : jamais qui paie.) */
@@ -243,28 +228,21 @@ export async function etatLivreur(req: Request, env: Env, livreur: Livreur): Pro
   return Response.json({ pause, retour: pause ? (config.retour ?? null) : null, service: service ?? null, livraison, fraisService, livraisonGratuite, colis, restosFermes, commandeMin, supplement, annonce, pourboires, promos: promos.filter((p) => !p.code).map(vueClient), plats }, { headers: { 'cache-control': 'no-store' } });
 }
 
-// --- Historique des commandes (une fiche JSON par commande, supprimée après 90 jours par le bucket) ----------
+// --- Historique des commandes (Supabase `commandes` ou bucket R2 `BONS`) ------------------------------------
 /** Ne bloque jamais la commande : l'email et le WhatsApp restent les canaux principaux. */
 async function enregistrerFiche(env: Env, livreur: Livreur, f: Fiche): Promise<void> {
   try {
-    await env.BONS?.put(cleFiche(livreur.whatsapp, f.id), JSON.stringify(f), { httpMetadata: { contentType: 'application/json' } });
+    await stockage(env)?.enregistrerFiche(livreur.whatsapp, f);
   } catch (e) {
     console.error('[historique]', e);
   }
 }
 
-// ponytail: 40 dernières fiches seulement (limite de sous-requêtes d'une Function du plan gratuit : 50) ; au-delà, pagination.
+// ponytail: 30 dernières fiches seulement (limite de sous-requêtes d'une Function du plan gratuit sur R2 : 50).
 const MAX_FICHES = 30;
 
 async function lireFiches(env: Env, livreur: Livreur): Promise<Fiche[]> {
-  const { objects } = await env.BONS!.list({ prefix: prefixeFiches(livreur.whatsapp), limit: MAX_FICHES });
-  const lues = await Promise.all(
-    objects.map(async (o) => {
-      const obj = await env.BONS!.get(o.key);
-      return obj ? lireFiche(await new Response(obj.body).json().catch(() => null)) : null;
-    }),
-  );
-  return lues.filter((f): f is Fiche => f !== null);
+  return stockage(env)!.lireFiches(livreur.whatsapp, MAX_FICHES);
 }
 
 /** /api/commandes?cle=… : GET = page des commandes (en cours / historique), POST {id, statut} = livrée, annulée ou remise en cours. */
@@ -272,7 +250,8 @@ export async function pageCommandes(req: Request, env: Env, livreur: Livreur): P
   if (req.method === 'POST' && autreOrigine(req)) return refus();
   const url = new URL(req.url);
   const cle = url.searchParams.get('cle') ?? '';
-  if (!(await cleValide(cle, env.CONFIG_CLE)) || !env.BONS) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  const store = stockage(env);
+  if (!(await cleValide(cle, env.CONFIG_CLE)) || !store) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
   if (req.method === 'POST') {
     let body: { id?: unknown; statut?: unknown };
@@ -282,10 +261,8 @@ export async function pageCommandes(req: Request, env: Env, livreur: Livreur): P
       return erreur(400, 'Demande invalide.');
     }
     if (typeof body.id !== 'string' || !ID_FICHE.test(body.id) || !['nouvelle', 'livree', 'annulee'].includes(body.statut as string)) return erreur(400, 'Demande invalide.');
-    const objet = await env.BONS.get(cleFiche(livreur.whatsapp, body.id));
-    const fiche = objet ? lireFiche(await new Response(objet.body).json().catch(() => null)) : null;
-    if (!fiche) return erreur(404, 'Commande introuvable (peut-être effacée après 90 jours).');
-    await env.BONS.put(cleFiche(livreur.whatsapp, body.id), JSON.stringify(changerStatut(fiche, body.statut as Statut, new Date())), { httpMetadata: { contentType: 'application/json' } });
+    const ok = await store.majStatutFiche(livreur.whatsapp, body.id, body.statut as Statut, new Date());
+    if (!ok) return erreur(404, 'Commande introuvable (peut-être effacée après 90 jours).');
     return Response.json({ ok: true });
   }
   return new Response(htmlCommandes({ nom: livreur.nom, couleur: livreur.couleur, cle, fiches: await lireFiches(env, livreur) }), {
@@ -293,28 +270,17 @@ export async function pageCommandes(req: Request, env: Env, livreur: Livreur): P
   });
 }
 
-const cleAbonnements = (livreur: Livreur) => `push/${livreur.whatsapp}.json`;
 const MAX_APPAREILS = 5;
-
-async function lireAbonnements(env: Env, livreur: Livreur): Promise<string[]> {
-  const o = await env.BONS?.get(cleAbonnements(livreur));
-  if (!o) return [];
-  try {
-    const l: unknown = JSON.parse(await new Response(o.body).text());
-    return Array.isArray(l) ? l.filter(endpointValide) : [];
-  } catch {
-    return [];
-  }
-}
 
 /** Alerte push aux téléphones du livreur. Ne bloque jamais la commande : toute erreur est seulement journalisée. */
 async function alerterPush(req: Request, env: Env, livreur: Livreur): Promise<number> {
-  if (!env.VAPID_JWK || !env.BONS) return 0;
+  const store = stockage(env);
+  if (!env.VAPID_JWK || !store) return 0;
   try {
-    const liste = await lireAbonnements(env, livreur);
+    const liste = await store.lireAbonnementsPush(livreur.whatsapp);
     if (!liste.length) return 0;
     const { envoyes, expires } = await envoyerPush(liste, env.VAPID_JWK, `https://${new URL(req.url).hostname}`);
-    if (expires.length) await env.BONS.put(cleAbonnements(livreur), JSON.stringify(liste.filter((e) => !expires.includes(e))));
+    if (expires.length) await store.retirerAbonnementsPush(livreur.whatsapp, expires);
     return envoyes;
   } catch (e) {
     console.error('[push]', e);
@@ -330,7 +296,8 @@ export async function pagePush(req: Request, env: Env, livreur: Livreur): Promis
   if (req.method === 'POST' && autreOrigine(req)) return refus();
   const url = new URL(req.url);
   const cle = url.searchParams.get('cle') ?? '';
-  if (!(await cleValide(cle, env.CONFIG_CLE)) || !env.BONS) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  const store = stockage(env);
+  if (!(await cleValide(cle, env.CONFIG_CLE)) || !store) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
   if (req.method === 'POST') {
     let body: { endpoint?: unknown; test?: unknown };
@@ -341,8 +308,7 @@ export async function pagePush(req: Request, env: Env, livreur: Livreur): Promis
     }
     if (body.test === true) return Response.json({ ok: true, envoyes: await alerterPush(req, env, livreur) });
     if (!endpointValide(body.endpoint)) return erreur(400, 'Téléphone non reconnu.');
-    const liste = (await lireAbonnements(env, livreur)).filter((e) => e !== body.endpoint);
-    await env.BONS.put(cleAbonnements(livreur), JSON.stringify([...liste, body.endpoint].slice(-MAX_APPAREILS)));
+    await store.ajouterAbonnementPush(livreur.whatsapp, body.endpoint, MAX_APPAREILS);
     return Response.json({ ok: true });
   }
 
@@ -642,7 +608,7 @@ export async function pageConfig(
     cle = form.get('cle') ?? cle;
     resto = form.get('resto') ?? resto;
   }
-  if (!(await cleValide(cle, env.CONFIG_CLE)) || !env.BONS) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  if (!(await cleValide(cle, env.CONFIG_CLE)) || !stockage(env)) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   if (resto && !SLUG.test(resto)) resto = '';
 
   const menu = resto ? await lire(resto) : null;
