@@ -278,7 +278,7 @@ export async function pageCommandes(req: Request, env: Env, livreur: Livreur): P
   const url = new URL(req.url);
   const cle = url.searchParams.get('cle') ?? '';
   const store = stockage(env);
-  if (!(await cleValide(cle, env.CONFIG_CLE)) || !store) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  if (!(await accesLivreur(req, env, cle)) || !store) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
   if (req.method === 'POST') {
     let body: { id?: unknown; statut?: unknown };
@@ -324,7 +324,7 @@ export async function pagePush(req: Request, env: Env, livreur: Livreur): Promis
   const url = new URL(req.url);
   const cle = url.searchParams.get('cle') ?? '';
   const store = stockage(env);
-  if (!(await cleValide(cle, env.CONFIG_CLE)) || !store) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  if (!(await accesLivreur(req, env, cle)) || !store) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
   if (req.method === 'POST') {
     let body: { endpoint?: unknown; test?: unknown };
@@ -348,6 +348,12 @@ export async function pagePush(req: Request, env: Env, livreur: Livreur): Promis
   return new Response(htmlPush({ nom: livreur.nom, couleur: livreur.couleur, cle, pub: env.VAPID_JWK ? cleVapidPublique(env.VAPID_JWK) : null }), {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex' },
   });
+}
+
+async function accesLivreur(req: Request, env: Env, cle: string): Promise<boolean> {
+  if (await cleValide(cle, env.CONFIG_CLE)) return true;
+  const u = await verifierUtilisateur(env, req).catch(() => null);
+  return u !== null && (u.role === 'admin' || u.role === 'livreur');
 }
 
 async function cleValide(donnee: string, attendue: string | undefined): Promise<boolean> {
@@ -635,7 +641,7 @@ export async function pageConfig(
     cle = form.get('cle') ?? cle;
     resto = form.get('resto') ?? resto;
   }
-  if (!(await cleValide(cle, env.CONFIG_CLE)) || !stockage(env)) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  if (!(await accesLivreur(req, env, cle)) || !stockage(env)) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   if (resto && !SLUG.test(resto)) resto = '';
 
   const menu = resto ? await lire(resto) : null;
@@ -899,7 +905,7 @@ ${message ? `<div class="msg ${message.startsWith('❌') ? 'ko' : 'ok'}">${echap
 <div data-vue="commandes">${cmd.html}</div>
 
 <div data-vue="accueil">
-<div class="entete"><div class="av2" style="background:${couleur}">${echapper(livreur.nom.charAt(0).toUpperCase())}</div><div><b>${echapper(livreur.nom)}</b><span>Mon espace livreur</span></div></div>
+<div class="entete"><div class="av2" style="background:${couleur}">${echapper(livreur.nom.charAt(0).toUpperCase())}</div><div style="flex:1"><b>${echapper(livreur.nom)}</b><span>Mon espace livreur</span></div>${!cle ? '<a href="/admin" style="padding:8px 12px;border-radius:12px;background:#141a2b;color:#fff;text-decoration:none;font-size:13px;font-weight:800">← Admin</a>' : ''}</div>
 <a class="alerte-cmd" href="#commandes"><b>🛵 Commandes</b><span>${nbEnCours} en cours</span></a>
 <section class="statut" id="service">
 <div class="tx2"><b><i class="${pause ? 'ko' : ''}"></i>${pause ? 'Site en pause' : 'Site ouvert'}</b><p>${pause ? `Les clients voient les menus mais ne peuvent pas commander.${config.retour ? ` Retour annoncé ${quand(config.retour, maintenant)} : les commandes reprennent toutes seules.` : ''}` : 'Vos clients peuvent commander maintenant.'}</p></div>

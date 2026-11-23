@@ -19,9 +19,11 @@ const TYPES = [
 export default function RestaurantsPanel({
   gestions,
   onReload,
+  mode = 'pc',
 }: {
   gestions: RestaurantGestion[];
   onReload: () => Promise<void>;
+  mode?: 'pc' | 'mobile';
 }) {
   const [statiques, setStatiques] = useState<RestoStatique[]>([]);
   const [q, setQ] = useState('');
@@ -420,6 +422,70 @@ export default function RestaurantsPanel({
       </div>
 
       {/* Liste des restaurants */}
+      {mode === 'pc' ? (
+        <div className="overflow-x-auto rounded-3xl border border-black/5 bg-white p-4 shadow-sm">
+          <table className="w-full border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-black/10 text-[11px] font-extrabold uppercase text-muted">
+                <th className="py-2.5 pr-3">Restaurant</th>
+                <th className="py-2.5 pr-3">Source / Type</th>
+                <th className="py-2.5 pr-3">Statut</th>
+                <th className="py-2.5 pr-3">Lien public</th>
+                <th className="py-2.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {listeFusionnee.slice(0, 60).map((r) => {
+                const actif = r.gestion?.actif ?? true;
+                const lien = r.source === 'custom' ? `/resto-live?slug=${r.slug}` : `/resto/${r.slug}`;
+                return (
+                  <tr key={r.slug} className="border-b border-black/5 hover:bg-[#f8f9fc]">
+                    <td className="py-2.5 pr-3">
+                      <span className={`font-extrabold ${actif ? 'text-ink' : 'text-muted line-through'}`}>{r.nom}</span>
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      {r.source === 'custom' ? (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-extrabold text-primary">Ajouté</span>
+                      ) : r.gestion ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-extrabold text-amber-800">Modifié</span>
+                      ) : (
+                        <span className="text-muted">Catalogue</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${actif ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
+                        {actif ? 'Actif' : 'Désactivé'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <a href={lien} target="_blank" rel="noreferrer" className="text-primary underline">{lien}</a>
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <div className="inline-flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => basculerActif(r.slug, r.nom, r.source, actif)}
+                          className={`rounded-lg px-2.5 py-1 font-extrabold ${actif ? 'border border-black/10 bg-white text-ink' : 'bg-emerald-600 text-white'}`}
+                        >
+                          {actif ? 'Désactiver' : 'Réactiver'}
+                        </button>
+                        <button type="button" onClick={() => ouvrirEdition(r.slug, r.nom, r.source)} className="rounded-lg bg-ink px-2.5 py-1 font-extrabold text-white">
+                          Modifier / Plats
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {listeFusionnee.length > 60 && (
+            <p className="mt-3 text-center text-xs text-muted">
+              Affichage des 60 premiers résultats sur {listeFusionnee.length}. Utilisez la recherche pour filtrer.
+            </p>
+          )}
+        </div>
+      ) : (
       <div className="flex flex-col gap-2">
         {listeFusionnee.slice(0, 60).map((r) => {
           const actif = r.gestion?.actif ?? true;
@@ -461,6 +527,7 @@ export default function RestaurantsPanel({
           </p>
         )}
       </div>
+      )}
       {ajoutOuvert && !edite && null}
     </div>
   );

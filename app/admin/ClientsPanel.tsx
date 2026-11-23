@@ -29,10 +29,12 @@ export default function ClientsPanel({
   clients,
   campagnes,
   onReload,
+  mode = 'pc',
 }: {
   clients: ClientCRM[];
   campagnes: Campagne[];
   onReload: () => Promise<void>;
+  mode?: 'pc' | 'mobile';
 }) {
   const [q, setQ] = useState('');
   const [filtreEmail, setFiltreEmail] = useState(false);
@@ -258,8 +260,67 @@ export default function ClientsPanel({
           </button>
         </div>
 
+        {filtres.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted">Aucun client enregistré pour le moment.</p>
+        ) : mode === 'pc' ? (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead>
+                <tr className="border-b border-black/10 text-[11px] font-extrabold uppercase text-muted">
+                  <th className="py-2.5 pr-2"><span className="sr-only">Sel</span></th>
+                  <th className="py-2.5 pr-3">Client</th>
+                  <th className="py-2.5 pr-3">Contact</th>
+                  <th className="py-2.5 pr-3">Cmds</th>
+                  <th className="py-2.5 pr-3">Total dépensé</th>
+                  <th className="py-2.5 pr-3">Dernière cmd</th>
+                  <th className="py-2.5 pr-3">Tags / Notes</th>
+                  <th className="py-2.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtres.map((c) => (
+                  <tr key={c.id} className="border-b border-black/5 hover:bg-[#f8f9fc]">
+                    <td className="py-2.5 pr-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selection[c.id])}
+                        onChange={(e) => setSelection((s) => ({ ...s, [c.id]: e.target.checked }))}
+                        className="h-4 w-4 accent-primary"
+                      />
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <div className="font-extrabold text-ink">{c.nom}</div>
+                      {c.derniere_adresse && <div className="max-w-[200px] truncate text-[11px] text-muted">{c.derniere_adresse}</div>}
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <div className="font-bold">+{c.telephone}</div>
+                      <div className="text-[11px] text-muted">{c.email ?? 'Sans email'}</div>
+                    </td>
+                    <td className="py-2.5 pr-3 font-extrabold">{c.nb_commandes}</td>
+                    <td className="py-2.5 pr-3 font-extrabold text-primary">{fmtPrix(c.total_depense)}</td>
+                    <td className="py-2.5 pr-3 text-muted">{fmtDate(c.derniere_commande_at)}</td>
+                    <td className="py-2.5 pr-3">
+                      <div className="flex flex-wrap gap-1">
+                        {(c.tags ?? []).map((t) => (
+                          <span key={t} className="rounded bg-black/10 px-1.5 py-0.5 text-[10px] font-bold">#{t}</span>
+                        ))}
+                      </div>
+                      {c.notes_admin && <div className="max-w-[160px] truncate text-[11px] italic text-muted">{c.notes_admin}</div>}
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <div className="inline-flex gap-1">
+                        <a href={`tel:+${c.telephone}`} className="rounded-lg border border-black/10 bg-white px-2 py-1 font-bold text-ink">📞</a>
+                        <a href={`https://wa.me/${c.telephone}`} target="_blank" rel="noreferrer" className="rounded-lg bg-[#25D366] px-2.5 py-1 font-extrabold text-white">WA</a>
+                        <button type="button" onClick={() => setEditionNote({ id: c.id, notes: c.notes_admin ?? '', tags: (c.tags ?? []).join(', ') })} className="rounded-lg border border-black/10 bg-white px-2 py-1 font-bold text-ink">Notes</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
         <div className="mt-4 flex flex-col gap-2.5">
-          {filtres.length === 0 && <p className="py-8 text-center text-sm text-muted">Aucun client enregistré pour le moment.</p>}
           {filtres.map((c) => (
             <div key={c.id} className="flex flex-col gap-2 rounded-2xl border border-black/5 bg-[#f8f9fc] p-3.5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
@@ -317,6 +378,7 @@ export default function ClientsPanel({
             </div>
           ))}
         </div>
+        )}
       </div>
 
       {/* Modal édition notes/tags */}

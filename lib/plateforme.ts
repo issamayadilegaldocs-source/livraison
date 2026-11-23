@@ -4,8 +4,9 @@
 import { z } from 'zod';
 import { envoyerEmail } from './email';
 import { normaliserTelephone } from './commande';
+import { ConfigSchema, pauseEnCours, reglages } from './config';
 import type { Livreur } from './livreur';
-import { headersSupabase, type EnvStockage } from './supabase';
+import { headersSupabase, stockage, type EnvStockage } from './supabase';
 import type { DonneesResto, Env } from './serveur';
 import type { Horaire, Plat } from './catalogue';
 
@@ -795,8 +796,43 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
   if (!admin) return err(401, 'Connexion requise.');
   if (admin.role !== 'admin' && admin.role !== 'livreur') return err(403, 'Accès réservé à l’administrateur.');
   // Seul l'admin a accès aux sections CRM, livreurs, restaurants et notifications.
-  if (admin.role !== 'admin' && section !== 'commandes' && section !== 'stats') {
+  if (admin.role !== 'admin' && section !== 'commandes' && section !== 'stats' && section !== 'reglages') {
     return err(403, 'Accès réservé à l’administrateur.');
+  }
+
+  // --- REGLAGES LIVREUR (Pause, Horaires, Frais, Colis, Promos, Coupons, Commission, Annonce, Pourboires...) ---
+  if (section === 'reglages') {
+    const store = stockage(env);
+    if (!store) return err(503, 'Stockage indisponible.');
+    if (req.method === 'GET') {
+      const config = await store.lireConfig(livreur.whatsapp);
+      const effectif = reglages(livreur, config);
+      const pauseActive = pauseEnCours(config, new Date());
+      return json({
+        config,
+        effectif,
+        pauseActive,
+        livreur: { nom: livreur.nom, ville: livreur.ville, whatsapp: livreur.whatsapp, email: livreur.email },
+      });
+    }
+    if (req.method === 'PATCH' || req.method === 'POST') {
+      const body = await req.json().catch(() => null);
+      if (!body || typeof body !== 'object') return err(400, 'Réglages invalides.');
+      const cur = await store.lireConfig(livreur.whatsapp);
+      const fusion: Record<string, unknown> = { ...cur, ...(body as Record<string, unknown>) };
+      // Les champs passés à `undefined` sont supprimés, `null` est conservé (ex: service: null, livraisonGratuite: null)
+      for (const [k, v] of Object.entries(fusion)) {
+        if (v === undefined) delete fusion[k];
+      }
+      const parsed = ConfigSchema.safeParse(fusion);
+      if (!parsed.success) {
+        return err(400, parsed.error.issues[0]?.message ?? 'Valeurs de réglages invalides.');
+      }
+      await store.ecrireConfig(livreur.whatsapp, parsed.data);
+      const effectif = reglages(livreur, parsed.data);
+      const pauseActive = pauseEnCours(parsed.data, new Date());
+      return json({ config: parsed.data, effectif, pauseActive });
+    }
   }
 
   // --- STATS ---

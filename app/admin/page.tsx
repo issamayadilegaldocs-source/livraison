@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from '@/app/components/Lien';
 import type { ClientCRM, CommandeSuivi, LivreurGestion, ProfilUtilisateur, RestaurantGestion, StatutCommande } from '@/lib/plateforme';
+import type { Config } from '@/lib/config';
+import type { Promo } from '@/lib/commission';
 import ClientsPanel from './ClientsPanel';
 import LivreursPanel from './LivreursPanel';
 import RestaurantsPanel from './RestaurantsPanel';
+import ReglagesPanel from './ReglagesPanel';
 
 type Stats = {
   totalCommandes: number;
@@ -29,6 +32,35 @@ type Campagne = {
   nb_envoyes: number;
   created_at: string;
 };
+
+type ReglagesApi = {
+  config: Config;
+  effectif: {
+    service?: { ouvre: string; ferme: string };
+    livraison: { base: number; parKm: number; min: number; max: number; rayonMaxKm: number; facteurRoute: number };
+    fraisService: { pourcent: number; min: number; max: number } | null;
+    livraisonGratuite: { min?: number } | null;
+    colis: {
+      actif: boolean;
+      livraison: { base: number; parKm: number; min: number; max: number; rayonMaxKm: number };
+      supplements: { petit: number; moyen: number; grand: number };
+      urgent: number;
+      nuit: { de: string; a: string; montant: number } | null;
+    };
+    commission: { restos?: Record<string, number> };
+    promos: Promo[];
+    commandeMin: number | null;
+    supplement: {
+      manuel?: { actif: boolean; nom: string; montant: number };
+      nuit?: { actif: boolean; de: string; a: string; montant: number };
+    } | null;
+    annonce: string | null;
+    pourboires: number[];
+  };
+  pauseActive: boolean;
+};
+
+type Onglet = 'accueil' | 'commandes' | 'reglages' | 'clients' | 'livreurs' | 'restaurants';
 
 const STATUTS: { cle: StatutCommande; label: string; cls: string }[] = [
   { cle: 'nouvelle', label: 'Reçue', cls: 'bg-blue-100 text-blue-800' },
@@ -59,7 +91,8 @@ const fmtDate = (iso: string) => {
 export default function PageAdmin() {
   const [chargement, setChargement] = useState(true);
   const [user, setUser] = useState<ProfilUtilisateur | null>(null);
-  const [onglet, setOnglet] = useState<'commandes' | 'clients' | 'livreurs' | 'restaurants'>('commandes');
+  const [mode, setMode] = useState<'pc' | 'mobile'>('pc');
+  const [onglet, setOnglet] = useState<Onglet>('commandes');
 
   // Login admin
   const [email, setEmail] = useState('');
@@ -74,17 +107,47 @@ export default function PageAdmin() {
   const [campagnes, setCampagnes] = useState<Campagne[]>([]);
   const [livreurs, setLivreurs] = useState<LivreurGestion[]>([]);
   const [restaurants, setRestaurants] = useState<RestaurantGestion[]>([]);
+  const [reglages, setReglages] = useState<ReglagesApi | null>(null);
 
   // Filtres commandes
   const [filtreStatut, setFiltreStatut] = useState<'en_cours' | 'toutes' | StatutCommande>('en_cours');
   const [qCmd, setQCmd] = useState('');
   const [notifierEmail, setNotifierEmail] = useState(true);
   const [majId, setMajId] = useState<string | null>(null);
+  const [switchBusy, setSwitchBusy] = useState<string | null>(null);
+
+  // Détection auto PC vs Téléphone + préférence sauvegardée
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('admin_mode');
+      if (saved === 'pc' || saved === 'mobile') {
+        setMode(saved);
+        if (saved === 'mobile') setOnglet('accueil');
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+    const isTel = window.innerWidth < 768;
+    setMode(isTel ? 'mobile' : 'pc');
+    if (isTel) setOnglet('accueil');
+  }, []);
+
+  function changerMode(next: 'pc' | 'mobile') {
+    setMode(next);
+    try {
+      localStorage.setItem('admin_mode', next);
+    } catch {
+      /* ignore */
+    }
+    if (next === 'pc' && onglet === 'accueil') setOnglet('commandes');
+  }
 
   const chargerTout = useCallback(async (role: string) => {
     const reqs = [
       fetch('/api/admin/stats', { credentials: 'same-origin' }),
       fetch('/api/admin/commandes', { credentials: 'same-origin' }),
+      fetch('/api/admin/reglages', { credentials: 'same-origin' }),
     ];
     if (role === 'admin') {
       reqs.push(
@@ -96,13 +159,14 @@ export default function PageAdmin() {
     const res = await Promise.all(reqs);
     if (res[0]?.ok) setStats((await res[0].json()).stats ?? null);
     if (res[1]?.ok) setCommandes((await res[1].json()).commandes ?? []);
-    if (res[2]?.ok) {
-      const d = await res[2].json();
+    if (res[2]?.ok) setReglages((await res[2].json()) as ReglagesApi);
+    if (res[3]?.ok) {
+      const d = await res[3].json();
       setClients(d.clients ?? []);
       setCampagnes(d.campagnes ?? []);
     }
-    if (res[3]?.ok) setLivreurs((await res[3].json()).livreurs ?? []);
-    if (res[4]?.ok) setRestaurants((await res[4].json()).restaurants ?? []);
+    if (res[4]?.ok) setLivreurs((await res[4].json()).livreurs ?? []);
+    if (res[5]?.ok) setRestaurants((await res[5].json()).restaurants ?? []);
   }, []);
 
   useEffect(() => {
@@ -137,8 +201,8 @@ export default function PageAdmin() {
         credentials: 'same-origin',
         body: JSON.stringify({ email, password }),
       });
-      const d = await res.json();
-      if (!res.ok) return setErrLogin(d.erreur ?? 'Identifiants invalides.');
+      const d = await res.json().catch(() => null);
+      if (!res.ok) return setErrLogin(d?.erreur ?? `Erreur serveur (${res.status}).`);
       if (d.user?.role !== 'admin' && d.user?.role !== 'livreur') {
         return setErrLogin('Ce compte est un compte client. Connectez-vous avec un compte administrateur.');
       }
@@ -170,6 +234,29 @@ export default function PageAdmin() {
     } finally {
       setMajId(null);
     }
+  }
+
+  async function sauvegarderReglages(patch: Record<string, unknown>): Promise<string | null> {
+    try {
+      const res = await fetch('/api/admin/reglages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(patch),
+      });
+      const d = await res.json().catch(() => null);
+      if (!res.ok) return d?.erreur ?? `Erreur (${res.status})`;
+      setReglages(d as ReglagesApi);
+      return null;
+    } catch {
+      return 'Erreur réseau.';
+    }
+  }
+
+  async function toggleRapide(cle: string, patch: Record<string, unknown>) {
+    setSwitchBusy(cle);
+    await sauvegarderReglages(patch);
+    setSwitchBusy(null);
   }
 
   const commandesFiltrees = useMemo(() => {
@@ -206,7 +293,7 @@ export default function PageAdmin() {
           </Link>
         </div>
         <form onSubmit={connexionAdmin} className="flex flex-col gap-3 rounded-3xl bg-white p-6 shadow-sm">
-          <p className="m-0 text-sm text-muted">Connectez-vous avec votre compte administrateur pour gérer les commandes, les clients, les livreurs et les restaurants.</p>
+          <p className="m-0 text-sm text-muted">Connectez-vous avec votre compte administrateur ou livreur pour gérer les commandes, les réglages, les clients et les restaurants.</p>
           {errLogin && <p className="m-0 rounded-xl bg-red-50 px-3.5 py-2.5 text-xs font-bold text-red-700">{errLogin}</p>}
           <label className="text-sm font-bold">
             Email admin
@@ -238,33 +325,58 @@ export default function PageAdmin() {
     );
   }
 
+  const pauseActive = reglages?.pauseActive ?? false;
+  const livGratActive = Boolean(reglages?.effectif.livraisonGratuite);
+  const pluieActive = Boolean(reglages?.effectif.supplement?.manuel?.actif);
+  const colisActif = reglages?.effectif.colis.actif ?? true;
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-5 py-5">
-      {/* En-tête Admin */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-ink p-5 text-white">
-        <div>
-          <p className="m-0 text-xs font-bold uppercase tracking-wider text-white/70">Administration · {user.role}</p>
-          <h1 className="m-0 text-xl font-extrabold sm:text-2xl">Tableau de bord {user.nom || 'Admin'}</h1>
+    <div className={`mx-auto flex flex-col gap-4 py-4 ${mode === 'mobile' ? 'max-w-lg pb-24' : 'max-w-6xl'}`}>
+      {/* En-tête Admin avec bascule PC Tableaux ⇄ Téléphone Simplifié */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-ink p-4 text-white sm:p-5">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={`inline-block h-2.5 w-2.5 rounded-full ${pauseActive ? 'bg-red-400' : 'bg-emerald-400'}`} />
+            <p className="m-0 text-xs font-bold uppercase tracking-wider text-white/75">
+              {pauseActive ? 'Site en pause' : 'Site ouvert'} · {user.role}
+            </p>
+          </div>
+          <h1 className="m-0 truncate text-lg font-extrabold sm:text-2xl">{user.nom || 'Administration'}</h1>
         </div>
+
         <div className="flex flex-wrap items-center gap-2">
+          {/* Sélecteur de mode PC / Téléphone */}
+          <div className="flex rounded-xl bg-white/10 p-1">
+            <button
+              type="button"
+              onClick={() => changerMode('mobile')}
+              className={`h-8 rounded-lg px-2.5 text-xs font-extrabold transition ${mode === 'mobile' ? 'bg-white text-ink shadow-sm' : 'text-white/80 hover:text-white'}`}
+            >
+              📱 Téléphone
+            </button>
+            <button
+              type="button"
+              onClick={() => changerMode('pc')}
+              className={`h-8 rounded-lg px-2.5 text-xs font-extrabold transition ${mode === 'pc' ? 'bg-white text-ink shadow-sm' : 'text-white/80 hover:text-white'}`}
+            >
+              💻 PC Tableaux
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => chargerTout(user.role)}
-            className="h-10 rounded-xl bg-white/15 px-3.5 text-xs font-extrabold text-white hover:bg-white/25"
+            className="h-9 rounded-xl bg-white/15 px-3 text-xs font-extrabold text-white hover:bg-white/25"
           >
-            ↻ Actualiser
+            ↻
           </button>
-          <Link href="/" className="flex h-10 items-center rounded-xl bg-white/15 px-3.5 text-xs font-extrabold text-white hover:bg-white/25">
-            Voir le site
-          </Link>
-          <button type="button" onClick={deconnexion} className="h-10 rounded-xl bg-white px-3.5 text-xs font-extrabold text-ink">
-            Déconnexion
+          <button type="button" onClick={deconnexion} className="h-9 rounded-xl bg-white px-3 text-xs font-extrabold text-ink">
+            Quitter
           </button>
         </div>
       </div>
 
-      {/* KPIs */}
-      {stats && (
+      {/* KPIs en mode PC */}
+      {mode === 'pc' && stats && (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
           <div className="rounded-2xl bg-white p-3.5 shadow-sm">
             <p className="m-0 text-[11px] font-bold uppercase text-muted">En cours</p>
@@ -294,30 +406,175 @@ export default function PageAdmin() {
         </div>
       )}
 
-      {/* Navigation par onglets */}
-      <div className="no-scrollbar flex gap-1.5 overflow-x-auto rounded-2xl bg-black/5 p-1">
-        {([
-          ['commandes', `📦 Commandes (${stats?.enCours ?? commandes.length})`],
-          ...(user.role === 'admin'
-            ? ([
-                ['clients', `👥 Clients CRM (${clients.length})`],
-                ['livreurs', `🛵 Livreurs (${livreurs.length})`],
-                ['restaurants', '🍽️ Restaurants'],
-              ] as const)
-            : []),
-        ] as const).map(([cle, label]) => (
+      {/* Navigation par onglets en haut (Mode PC) */}
+      {mode === 'pc' && (
+        <div className="no-scrollbar flex gap-1.5 overflow-x-auto rounded-2xl bg-black/5 p-1">
+          {([
+            ['commandes', `📦 Commandes (${stats?.enCours ?? commandes.length})`],
+            ['reglages', '⚙️ Réglages & Tarifs'],
+            ...(user.role === 'admin'
+              ? ([
+                  ['clients', `👥 Clients CRM (${clients.length})`],
+                  ['livreurs', `🛵 Livreurs (${livreurs.length})`],
+                  ['restaurants', '🍽️ Restaurants'],
+                ] as const)
+              : []),
+          ] as const).map(([cle, label]) => (
+            <button
+              key={cle}
+              type="button"
+              onClick={() => setOnglet(cle)}
+              className={`h-11 shrink-0 flex-1 whitespace-nowrap rounded-xl px-4 text-xs font-extrabold transition sm:text-sm ${
+                onglet === cle ? 'bg-white text-ink shadow-sm' : 'text-muted hover:text-ink'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ÉCRAN ACCUEIL SIMPLIFIÉ (Mode Téléphone) */}
+      {mode === 'mobile' && onglet === 'accueil' && (
+        <div className="flex flex-col gap-3">
+          {/* Alerte commandes en cours */}
           <button
-            key={cle}
             type="button"
-            onClick={() => setOnglet(cle)}
-            className={`h-11 shrink-0 flex-1 whitespace-nowrap rounded-xl px-4 text-xs font-extrabold transition sm:text-sm ${
-              onglet === cle ? 'bg-white text-ink shadow-sm' : 'text-muted hover:text-ink'
-            }`}
+            onClick={() => setOnglet('commandes')}
+            className="flex items-center justify-between rounded-3xl border-2 border-primary bg-white px-5 py-4 text-left shadow-sm"
           >
-            {label}
+            <span className="text-lg font-extrabold text-ink">🛵 Commandes</span>
+            <span className="rounded-full bg-primary px-3.5 py-1 text-sm font-extrabold text-white">
+              {stats?.enCours ?? 0} en cours
+            </span>
           </button>
-        ))}
-      </div>
+
+          {/* Grosse carte Service Ouvert / Pause avec switch direct */}
+          <div className="flex items-center justify-between gap-3 rounded-3xl bg-ink p-5 text-white shadow-sm">
+            <div className="min-w-0">
+              <p className="m-0 flex items-center gap-2 text-lg font-extrabold">
+                <span className={`h-3 w-3 rounded-full ${pauseActive ? 'bg-red-400' : 'bg-emerald-400'}`} />
+                {pauseActive ? 'Site en pause' : 'Site ouvert'}
+              </p>
+              <p className="m-0 mt-1 text-xs text-white/75">
+                {pauseActive ? 'Les clients ne peuvent pas commander.' : 'Vos clients peuvent commander maintenant.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={switchBusy === 'pause'}
+              onClick={() => toggleRapide('pause', pauseActive ? { pause: false, retour: undefined } : { pause: true })}
+              className={`relative h-10 w-16 shrink-0 rounded-full transition ${pauseActive ? 'bg-red-500' : 'bg-emerald-400'}`}
+              aria-label={pauseActive ? 'Reprendre' : 'Mettre en pause'}
+            >
+              <span className={`absolute top-1 h-8 w-8 rounded-full bg-white shadow transition ${pauseActive ? 'left-1' : 'left-7'}`} />
+            </button>
+          </div>
+
+          {/* 4 tuiles raccourcis avec switches directs */}
+          <h2 className="m-0 mt-1 text-sm font-extrabold uppercase tracking-wide text-muted">Raccourcis directs</h2>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              disabled={switchBusy === 'livgrat'}
+              onClick={() => toggleRapide('livgrat', { livraisonGratuite: livGratActive ? null : {} })}
+              className={`flex flex-col items-start gap-2 rounded-3xl border p-4 text-left shadow-sm ${livGratActive ? 'border-emerald-500 bg-emerald-50' : 'border-black/5 bg-white'}`}
+            >
+              <span className="text-2xl">🎁</span>
+              <span className="text-sm font-extrabold text-ink">Livraison gratuite</span>
+              <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${livGratActive ? 'bg-emerald-600 text-white' : 'bg-black/10 text-muted'}`}>
+                {livGratActive ? 'Activée' : 'Désactivée'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={switchBusy === 'pluie'}
+              onClick={() =>
+                toggleRapide('pluie', {
+                  supplement: {
+                    ...(reglages?.effectif.supplement ?? {}),
+                    manuel: {
+                      actif: !pluieActive,
+                      nom: reglages?.effectif.supplement?.manuel?.nom || 'Pluie / Rush',
+                      montant: reglages?.effectif.supplement?.manuel?.montant ?? 1,
+                    },
+                  },
+                })
+              }
+              className={`flex flex-col items-start gap-2 rounded-3xl border p-4 text-left shadow-sm ${pluieActive ? 'border-cyan-600 bg-cyan-50' : 'border-black/5 bg-white'}`}
+            >
+              <span className="text-2xl">🌧️</span>
+              <span className="text-sm font-extrabold text-ink">Supplément pluie</span>
+              <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${pluieActive ? 'bg-cyan-700 text-white' : 'bg-black/10 text-muted'}`}>
+                {pluieActive ? `+${reglages?.effectif.supplement?.manuel?.montant ?? 1} DT` : 'Désactivé'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={switchBusy === 'colis'}
+              onClick={() =>
+                toggleRapide('colis', {
+                  colis: {
+                    actif: !colisActif,
+                    base: reglages?.effectif.colis.livraison.base ?? 2,
+                    parKm: reglages?.effectif.colis.livraison.parKm ?? 1,
+                    min: reglages?.effectif.colis.livraison.min ?? 3,
+                    max: reglages?.effectif.colis.livraison.max ?? 20,
+                    rayonMaxKm: reglages?.effectif.colis.livraison.rayonMaxKm ?? 10,
+                    moyen: reglages?.effectif.colis.supplements.moyen ?? 1,
+                    grand: reglages?.effectif.colis.supplements.grand ?? 2.5,
+                    urgent: reglages?.effectif.colis.urgent ?? 0,
+                  },
+                })
+              }
+              className={`flex flex-col items-start gap-2 rounded-3xl border p-4 text-left shadow-sm ${colisActif ? 'border-purple-500 bg-purple-50' : 'border-black/5 bg-white'}`}
+            >
+              <span className="text-2xl">📦</span>
+              <span className="text-sm font-extrabold text-ink">Service colis</span>
+              <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${colisActif ? 'bg-purple-700 text-white' : 'bg-black/10 text-muted'}`}>
+                {colisActif ? 'Actif' : 'Fermé'}
+              </span>
+            </button>
+
+            <a
+              href="/api/push"
+              className="flex flex-col items-start gap-2 rounded-3xl border border-amber-300 bg-amber-50 p-4 text-left shadow-sm"
+            >
+              <span className="text-2xl">🔔</span>
+              <span className="text-sm font-extrabold text-ink">Alertes téléphone</span>
+              <span className="rounded-full bg-amber-500 px-2.5 py-0.5 text-[11px] font-extrabold text-white">Activer Push</span>
+            </a>
+          </div>
+
+          {/* Accès directs aux écrans livreur historiques (authentifiés par session, sans ?cle=) */}
+          <a
+            href="/api/config"
+            className="flex items-center justify-between rounded-3xl bg-white p-4 shadow-sm border border-black/5"
+          >
+            <div>
+              <p className="m-0 text-sm font-extrabold text-ink">📱 Ouvrir l’interface livreur classique</p>
+              <p className="m-0 text-xs text-muted">Double prix resto/client, promos pas-à-pas, horaires…</p>
+            </div>
+            <span className="text-xl font-bold text-primary">›</span>
+          </a>
+
+          {user.role === 'admin' && (
+            <button
+              type="button"
+              onClick={() => setOnglet('livreurs')}
+              className="flex items-center justify-between rounded-3xl border border-black/5 bg-white p-4 text-left shadow-sm"
+            >
+              <div>
+                <p className="m-0 text-sm font-extrabold text-ink">🛵 Gérer l’équipe livreurs ({livreurs.length})</p>
+                <p className="m-0 text-xs text-muted">Ajouter, modifier, disponibilité</p>
+              </div>
+              <span className="text-xl font-bold text-primary">›</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ONGLET COMMANDES */}
       {onglet === 'commandes' && (
@@ -357,97 +614,163 @@ export default function PageAdmin() {
 
           {commandesFiltrees.length === 0 ? (
             <div className="rounded-3xl bg-white p-8 text-center text-sm text-muted">Aucune commande dans ce filtre.</div>
+          ) : mode === 'pc' ? (
+            /* TABLEAU CLAIR MODE PC */
+            <div className="overflow-x-auto rounded-3xl border border-black/5 bg-white p-4 shadow-sm">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-black/10 text-[11px] font-extrabold uppercase text-muted">
+                    <th className="py-2.5 pr-3">N° / Date</th>
+                    <th className="py-2.5 pr-3">Restaurant & Articles</th>
+                    <th className="py-2.5 pr-3">Client & Adresse</th>
+                    <th className="py-2.5 pr-3">Total</th>
+                    <th className="py-2.5 pr-3">Livreur</th>
+                    <th className="py-2.5 text-right">Statut & Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {commandesFiltrees.map((c) => {
+                    const badge = BADGE_MAP[c.statut] ?? STATUTS[0];
+                    const busy = majId === c.id;
+                    return (
+                      <tr key={c.id} className="border-b border-black/5 align-top hover:bg-[#f8f9fc]">
+                        <td className="py-3 pr-3 whitespace-nowrap">
+                          <div className="font-extrabold text-ink">N° {c.ref}</div>
+                          <div className="text-[11px] text-muted">{fmtDate(c.creee)}</div>
+                        </td>
+                        <td className="py-3 pr-3 max-w-[260px]">
+                          <div className="font-extrabold text-ink">{c.titre}</div>
+                          <ul className="m-0 mt-1 list-none space-y-0.5 p-0 text-[11px] text-muted">
+                            {(c.lignes ?? []).map((l, i) => (
+                              <li key={i}>• {l}</li>
+                            ))}
+                          </ul>
+                        </td>
+                        <td className="py-3 pr-3 max-w-[220px]">
+                          <div className="font-extrabold text-ink">{c.client_nom}</div>
+                          <div className="text-[11px] text-muted">+{c.client_telephone}</div>
+                          <div className="text-[11px] text-muted">{c.adresse}</div>
+                          {c.note && <div className="text-[11px] italic text-amber-800">📝 {c.note}</div>}
+                          <div className="mt-1 flex gap-1">
+                            <a href={`tel:+${c.client_telephone}`} className="rounded border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold">📞</a>
+                            <a
+                              href={`https://wa.me/${c.client_telephone}?text=${encodeURIComponent(`Bonjour ${c.client_nom}, concernant votre commande N° ${c.ref} (${c.titre}) : `)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded bg-[#25D366] px-2 py-0.5 text-[10px] font-extrabold text-white"
+                            >
+                              WA
+                            </a>
+                          </div>
+                        </td>
+                        <td className="py-3 pr-3 whitespace-nowrap font-extrabold text-primary">{fmtPrix(c.total)}</td>
+                        <td className="py-3 pr-3">
+                          <select
+                            disabled={busy}
+                            value={c.livreur_id ?? ''}
+                            onChange={(e) => {
+                              const idLiv = e.target.value || null;
+                              const liv = livreurs.find((x) => x.id === idLiv);
+                              majCommande(c.id, { livreur_id: idLiv, livreur_nom: liv?.nom ?? null });
+                            }}
+                            className="h-8 rounded-lg border border-black/10 bg-white px-2 text-[11px] font-bold"
+                          >
+                            <option value="">Non assigné</option>
+                            {livreurs.filter((l) => l.actif).map((l) => (
+                              <option key={l.id} value={l.id}>{l.nom}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-3 text-right">
+                          <div className="mb-1.5 flex justify-end">
+                            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${badge.cls}`}>{badge.label}</span>
+                          </div>
+                          <div className="flex flex-wrap justify-end gap-1">
+                            {STATUTS.filter((s) => s.cle !== c.statut).map((s) => (
+                              <button
+                                key={s.cle}
+                                type="button"
+                                disabled={busy}
+                                onClick={() => majCommande(c.id, { statut: s.cle })}
+                                className={`rounded-lg px-2 py-1 text-[10px] font-extrabold ${
+                                  s.cle === 'livree'
+                                    ? 'bg-emerald-600 text-white'
+                                    : s.cle === 'annulee'
+                                      ? 'bg-red-50 text-red-700'
+                                      : 'border border-black/10 bg-white text-ink hover:bg-black/5'
+                                }`}
+                              >
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           ) : (
+            /* CARTES TACTILES SIMPLIFIÉES MODE TÉLÉPHONE */
             <div className="flex flex-col gap-3">
               {commandesFiltrees.map((c) => {
                 const badge = BADGE_MAP[c.statut] ?? STATUTS[0];
                 const busy = majId === c.id;
                 return (
-                  <article key={c.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
+                  <article key={c.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span className="text-base font-extrabold text-ink">{c.titre}</span>
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-extrabold ${badge.cls}`}>{badge.label}</span>
-                          <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-bold text-ink">N° {c.ref}</span>
+                          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${badge.cls}`}>{badge.label}</span>
                         </div>
-                        <p className="m-0 mt-1 text-xs text-muted">
-                          📅 {fmtDate(c.creee)} · 👤 <b>{c.client_nom}</b> · 📞 +{c.client_telephone}
-                          {c.client_email ? ` · ✉️ ${c.client_email}` : ''}
-                        </p>
-                        <p className="m-0 text-xs text-muted">
-                          📍 {c.adresse}
-                          {c.note ? ` · 📝 ${c.note}` : ''}
-                        </p>
+                        <p className="m-0 mt-0.5 text-xs text-muted">N° {c.ref} · {fmtDate(c.creee)}</p>
                       </div>
-                      <div className="text-right">
-                        <p className="m-0 text-lg font-extrabold text-ink">{fmtPrix(c.total)}</p>
-                        <div className="mt-1 flex justify-end gap-1.5">
-                          <a href={`tel:+${c.client_telephone}`} className="rounded-lg border border-black/10 px-2.5 py-1 text-xs font-bold text-ink">
-                            📞
-                          </a>
-                          <a
-                            href={`https://wa.me/${c.client_telephone}?text=${encodeURIComponent(`Bonjour ${c.client_nom}, concernant votre commande N° ${c.ref} (${c.titre}) : `)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-lg bg-[#25D366] px-2.5 py-1 text-xs font-extrabold text-white"
-                          >
-                            WhatsApp
-                          </a>
-                        </div>
-                      </div>
+                      <p className="m-0 text-base font-extrabold text-primary">{fmtPrix(c.total)}</p>
                     </div>
 
-                    <ul className="mt-3 space-y-0.5 rounded-2xl bg-[#f6f7fb] p-3 text-xs text-ink">
+                    <p className="m-0 mt-2 text-xs font-bold text-ink">👤 {c.client_nom} · 📍 {c.adresse}</p>
+                    <ul className="mt-2 space-y-0.5 rounded-2xl bg-[#f6f7fb] p-3 text-xs text-ink">
                       {(c.lignes ?? []).map((l, i) => (
                         <li key={i}>• {l}</li>
                       ))}
                     </ul>
 
-                    {/* Assignation livreur + changement statut */}
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-black/5 pt-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-muted">🛵 Livreur :</span>
-                        <select
-                          disabled={busy}
-                          value={c.livreur_id ?? ''}
-                          onChange={(e) => {
-                            const idLiv = e.target.value || null;
-                            const liv = livreurs.find((x) => x.id === idLiv);
-                            majCommande(c.id, { livreur_id: idLiv, livreur_nom: liv?.nom ?? null });
-                          }}
-                          className="h-9 rounded-xl border border-black/10 bg-white px-2.5 text-xs font-bold"
-                        >
-                          <option value="">Non assigné</option>
-                          {livreurs.filter((l) => l.actif).map((l) => (
-                            <option key={l.id} value={l.id}>
-                              {l.nom} ({l.disponible ? 'Dispo' : 'Occupé'})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                    <div className="mt-2.5 grid grid-cols-2 gap-2">
+                      <a href={`tel:+${c.client_telephone}`} className="flex h-11 items-center justify-center rounded-2xl border border-black/10 text-xs font-extrabold text-ink">
+                        📞 Appeler
+                      </a>
+                      <a
+                        href={`https://wa.me/${c.client_telephone}?text=${encodeURIComponent(`Bonjour ${c.client_nom}, concernant votre commande N° ${c.ref} : `)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex h-11 items-center justify-center rounded-2xl bg-[#25D366] text-xs font-extrabold text-white"
+                      >
+                        💬 WhatsApp
+                      </a>
+                    </div>
 
-                      <div className="flex flex-wrap gap-1.5">
-                        {STATUTS.map((s) => (
-                          <button
-                            key={s.cle}
-                            type="button"
-                            disabled={busy || c.statut === s.cle}
-                            onClick={() => majCommande(c.id, { statut: s.cle })}
-                            className={`h-9 rounded-xl px-3 text-xs font-extrabold transition disabled:opacity-40 ${
-                              c.statut === s.cle
-                                ? 'bg-ink text-white'
-                                : s.cle === 'livree'
-                                  ? 'bg-emerald-600 text-white hover:opacity-90'
-                                  : s.cle === 'annulee'
-                                    ? 'bg-red-50 text-red-700 hover:bg-red-100'
-                                    : 'border border-black/10 bg-white text-ink hover:bg-black/5'
-                            }`}
-                          >
-                            {s.label}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="mt-2.5 grid grid-cols-3 gap-1.5">
+                      {STATUTS.map((s) => (
+                        <button
+                          key={s.cle}
+                          type="button"
+                          disabled={busy || c.statut === s.cle}
+                          onClick={() => majCommande(c.id, { statut: s.cle })}
+                          className={`h-10 rounded-xl text-[11px] font-extrabold disabled:opacity-40 ${
+                            c.statut === s.cle
+                              ? 'bg-ink text-white'
+                              : s.cle === 'livree'
+                                ? 'bg-emerald-600 text-white'
+                                : s.cle === 'annulee'
+                                  ? 'bg-red-50 text-red-700'
+                                  : 'border border-black/10 bg-white text-ink'
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
                     </div>
                   </article>
                 );
@@ -457,14 +780,51 @@ export default function PageAdmin() {
         </div>
       )}
 
+      {/* ONGLET RÉGLAGES & TARIFS (TOUTES LES 15 GESTIONS) */}
+      {onglet === 'reglages' && <ReglagesPanel data={reglages} onSave={sauvegarderReglages} />}
+
       {/* ONGLET CLIENTS CRM */}
-      {onglet === 'clients' && <ClientsPanel clients={clients} campagnes={campagnes} onReload={() => chargerTout(user.role)} />}
+      {onglet === 'clients' && <ClientsPanel clients={clients} campagnes={campagnes} onReload={() => chargerTout(user.role)} mode={mode} />}
 
       {/* ONGLET LIVREURS */}
-      {onglet === 'livreurs' && <LivreursPanel livreurs={livreurs} onReload={() => chargerTout(user.role)} />}
+      {onglet === 'livreurs' && <LivreursPanel livreurs={livreurs} onReload={() => chargerTout(user.role)} mode={mode} />}
 
       {/* ONGLET RESTAURANTS */}
-      {onglet === 'restaurants' && <RestaurantsPanel gestions={restaurants} onReload={() => chargerTout(user.role)} />}
+      {onglet === 'restaurants' && <RestaurantsPanel gestions={restaurants} onReload={() => chargerTout(user.role)} mode={mode} />}
+
+      {/* BARRE DE NAVIGATION FIXE EN BAS (Mode Téléphone) */}
+      {mode === 'mobile' && (
+        <nav
+          aria-label="Navigation mobile admin"
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white/95 backdrop-blur pb-[env(safe-area-inset-bottom)]"
+        >
+          <div className="mx-auto grid max-w-lg grid-cols-5 px-1 py-1.5">
+            {([
+              ['accueil', '🏠', 'Accueil'],
+              ['commandes', '📦', `Cmds${stats?.enCours ? ` (${stats.enCours})` : ''}`],
+              ['reglages', '⚙️', 'Réglages'],
+              ...(user.role === 'admin'
+                ? ([
+                    ['clients', '👥', 'Clients'],
+                    ['restaurants', '🍽️', 'Restos'],
+                  ] as const)
+                : []),
+            ] as const).map(([cle, icone, label]) => (
+              <button
+                key={cle}
+                type="button"
+                onClick={() => setOnglet(cle)}
+                className={`flex flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 text-[11px] font-extrabold ${
+                  onglet === cle ? 'text-primary' : 'text-muted'
+                }`}
+              >
+                <span className="text-lg leading-none">{icone}</span>
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

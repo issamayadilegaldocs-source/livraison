@@ -8,9 +8,11 @@ const vide = { id: '', nom: '', telephone: '', email: '', ville: 'Sfax', vehicul
 export default function LivreursPanel({
   livreurs,
   onReload,
+  mode = 'pc',
 }: {
   livreurs: LivreurGestion[];
   onReload: () => Promise<void>;
+  mode?: 'pc' | 'mobile';
 }) {
   const [form, setForm] = useState(vide);
   const [ouvert, setOuvert] = useState(false);
@@ -131,6 +133,57 @@ export default function LivreursPanel({
         </form>
       )}
 
+      {mode === 'pc' ? (
+        <div className="overflow-x-auto rounded-3xl border border-black/5 bg-white p-4 shadow-sm">
+          <table className="w-full border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-black/10 text-[11px] font-extrabold uppercase text-muted">
+                <th className="py-2.5 pr-3">Livreur</th>
+                <th className="py-2.5 pr-3">Téléphone / Email</th>
+                <th className="py-2.5 pr-3">Ville & Véhicule</th>
+                <th className="py-2.5 pr-3">Statut</th>
+                <th className="py-2.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {livreurs.map((l) => (
+                <tr key={l.id} className="border-b border-black/5 hover:bg-[#f8f9fc]">
+                  <td className="py-2.5 pr-3">
+                    <div className="font-extrabold text-ink">{l.nom}</div>
+                    {l.notes && <div className="text-[11px] italic text-muted">{l.notes}</div>}
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    <div className="font-bold">+{l.telephone}</div>
+                    {l.email && <div className="text-[11px] text-muted">{l.email}</div>}
+                  </td>
+                  <td className="py-2.5 pr-3">{l.ville}{l.vehicule ? ` · ${l.vehicule}` : ''}</td>
+                  <td className="py-2.5 pr-3">
+                    <div className="flex gap-1.5">
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${l.actif ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>{l.actif ? 'Actif' : 'Inactif'}</span>
+                      {l.actif && <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${l.disponible ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{l.disponible ? 'Dispo' : 'Occupé'}</span>}
+                    </div>
+                  </td>
+                  <td className="py-2.5 text-right">
+                    <div className="inline-flex gap-1">
+                      <button type="button" onClick={() => basculer(l, 'disponible')} className="rounded-lg border border-black/10 bg-white px-2 py-1 font-bold">{l.disponible ? 'Occupé' : 'Dispo'}</button>
+                      <button type="button" onClick={() => basculer(l, 'actif')} className="rounded-lg border border-black/10 bg-white px-2 py-1 font-bold">{l.actif ? 'Désact.' : 'Activer'}</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForm({ id: l.id, nom: l.nom, telephone: l.telephone.replace(/^216/, ''), email: l.email ?? '', ville: l.ville, vehicule: l.vehicule ?? '', notes: l.notes ?? '', actif: l.actif, disponible: l.disponible });
+                          setOuvert(true);
+                        }}
+                        className="rounded-lg bg-ink px-2.5 py-1 font-extrabold text-white"
+                      >Modifier</button>
+                      <button type="button" onClick={() => supprimer(l.id)} className="rounded-lg bg-red-50 px-2 py-1 font-bold text-red-700">Suppr.</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
       <div className="flex flex-col gap-2.5">
         {livreurs.map((l) => (
           <div key={l.id} className="flex flex-col gap-3 rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
@@ -186,6 +239,7 @@ export default function LivreursPanel({
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }

@@ -223,4 +223,50 @@ describe('gererAdmin & suiviPublic', () => {
     const bad = await suiviPublic(new Request('https://site.test/api/suivi?ref=TEST01'), ENV_SB);
     expect(bad.status).toBe(400);
   });
+
+  it('permet à l’admin de lire et mettre à jour /api/admin/reglages', async () => {
+    let savedConfig: unknown = { pause: false, plats: {} };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.includes('/auth/v1/user')) return Response.json({ id: 'u-admin', email: 'admin@livraison.tn' });
+      if (url.includes('/rest/v1/profiles')) {
+        return Response.json([{ id: 'u-admin', email: 'admin@livraison.tn', role: 'admin', nom: 'Admin', actif: true }]);
+      }
+      if (url.includes('/rest/v1/livreur_configs') && method === 'GET') {
+        return Response.json([{ config: savedConfig }]);
+      }
+      if (url.includes('/rest/v1/livreur_configs') && method === 'POST') {
+        const body = JSON.parse(String(init?.body));
+        savedConfig = body.config;
+        return new Response(null, { status: 201 });
+      }
+      return Response.json([]);
+    });
+
+    const rGet = await gererAdmin(
+      new Request('https://site.test/api/admin/reglages', { headers: { cookie: 'liv_session=tok' } }),
+      ENV_SB,
+      LIVREUR,
+      'reglages',
+    );
+    expect(rGet.status).toBe(200);
+    const dGet = await rGet.json();
+    expect(dGet.pauseActive).toBe(false);
+
+    const rPatch = await gererAdmin(
+      new Request('https://site.test/api/admin/reglages', {
+        method: 'PATCH',
+        headers: { cookie: 'liv_session=tok', 'content-type': 'application/json' },
+        body: JSON.stringify({ pause: true, annonce: 'Pause 15 min' }),
+      }),
+      ENV_SB,
+      LIVREUR,
+      'reglages',
+    );
+    expect(rPatch.status).toBe(200);
+    const dPatch = await rPatch.json();
+    expect(dPatch.pauseActive).toBe(true);
+    expect(dPatch.effectif.annonce).toBe('Pause 15 min');
+  });
 });
