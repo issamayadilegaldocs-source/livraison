@@ -9,6 +9,7 @@ import { useT } from '@/lib/i18n';
 import { useMaintenant } from '@/lib/maintenant';
 import { useReglages } from '@/lib/reglages';
 import { messageArret, type Service } from '@/lib/service';
+import type { RestaurantGestion } from '@/lib/plateforme';
 import Menu, { type PlatVue } from './Menu';
 
 export function StatutResto({ horaires }: { horaires: Horaire[] }) {
@@ -28,10 +29,11 @@ export function MenuVivant({ horaires, service, livraison, fraisService, livrais
   const t = useT();
   const m = useMaintenant();
   const r = useReglages(slug);
+  const [gestion, setGestion] = useState<RestaurantGestion | null>(null);
   const serviceEnVigueur = r ? (r.service ?? undefined) : service;
-  const restoFerme = r?.restosFermes.includes(slug) ?? false;
+  const restoFerme = (r?.restosFermes.includes(slug) ?? false) || gestion?.actif === false;
   const arret = restoFerme ? t('Ce restaurant est indisponible pour le moment.') : m ? messageArret(serviceEnVigueur, r?.pause ?? false, m, r?.retour ?? undefined, t) : null;
-  // Menu : JSON statique /menu-data/<slug> (hors du HTML pour l'alléger).
+  // Menu : JSON statique /menu-data/<slug> (hors du HTML pour l'alléger) + surcharges live admin.
   const [menu, setMenu] = useState<{ categories: { id: number; nom: string }[]; plats: PlatVue[] } | null>(null);
   const [erreur, setErreur] = useState(false);
   useEffect(() => {
@@ -39,8 +41,54 @@ export function MenuVivant({ horaires, service, livraison, fraisService, livrais
     fetch(`/menu-data/${slug}`)
       .then((x) => (x.ok ? x.json() : Promise.reject()))
       .then(setMenu, () => setErreur(true));
+    fetch(`/api/restos-live?slug=${encodeURIComponent(slug)}`)
+      .then((x) => (x.ok ? x.json() : null))
+      .then((d) => d?.restaurant && setGestion(d.restaurant))
+      .catch(() => {});
   }, [slug]);
-  const platsVus = useMemo(() => (menu ? corrigerPlats(menu.plats, r?.plats) : []), [menu, r]);
+  const { categoriesVues, platsVus } = useMemo(() => {
+    if (!menu) return { categoriesVues: [] as { id: number; nom: string }[], platsVus: [] as PlatVue[] };
+    const categories = [...menu.categories];
+    let nextCatId = categories.reduce((mx, c) => Math.max(mx, c.id), 0) + 1;
+    const assurerCat = (nom: string) => {
+      const ex = categories.find((c) => c.nom.toLowerCase() === nom.toLowerCase());
+      if (ex) return ex.id;
+      const id = nextCatId++;
+      categories.push({ id, nom });
+      return id;
+    };
+    const modifs = gestion?.plats_overrides?.modifs ?? {};
+    const ajouts = gestion?.plats_overrides?.ajouts ?? [];
+    const basePlats: PlatVue[] = [];
+    for (const p of menu.plats) {
+      const ov = modifs[String(p.id)];
+      if (ov?.indispo) continue;
+      basePlats.push({
+        ...p,
+        ...(ov?.nom ? { nom: ov.nom } : {}),
+        ...(typeof ov?.prix === 'number' ? { prix: ov.prix } : {}),
+        ...(ov?.description !== undefined ? { description: ov.description } : {}),
+        ...(ov?.categorie ? { categorieId: assurerCat(ov.categorie) } : {}),
+      });
+    }
+    for (const a of ajouts) {
+      if (a.indispo) continue;
+      basePlats.push({
+        id: a.id,
+        categorieId: assurerCat(a.categorie || 'Nouveautés'),
+        nom: a.nom,
+        description: a.description ?? '',
+        prix: a.prix,
+        prixOrigine: null,
+        populaire: false,
+        image: a.image ?? null,
+        thumb: a.image ?? null,
+        full: a.image ?? null,
+        groupes: [],
+      });
+    }
+    return { categoriesVues: categories, platsVus: corrigerPlats(basePlats, r?.plats) };
+  }, [menu, r, gestion]);
   if (!menu)
     return erreur ? (
       <p className="mt-6 text-center text-sm font-semibold text-red-700">{t('Menu indisponible, vérifiez votre connexion et rechargez la page.')}</p>
@@ -55,7 +103,7 @@ export function MenuVivant({ horaires, service, livraison, fraisService, livrais
     <Menu
       {...props}
       slug={slug}
-      categories={menu.categories}
+      categories={categoriesVues}
       plats={platsVus}
       livraison={r?.livraison ?? livraison}
       fraisService={r ? r.fraisService : fraisService}

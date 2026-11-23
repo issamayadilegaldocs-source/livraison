@@ -10,6 +10,7 @@ import { useReglages } from '@/lib/reglages';
 import { etiquettePromo, type PromoVue } from '@/lib/commission';
 import { correspond } from '@/lib/filtres-plats';
 import { normaliser, rechercher } from '@/lib/recherche';
+import type { RestaurantGestion } from '@/lib/plateforme';
 import Img from './components/Img';
 import { RestoRow, RestoTile, type CarteResto } from './components/RestoCard';
 
@@ -24,6 +25,8 @@ type Props = {
   promos: PromoVue[];
   /** Titre de la page de catégorie (« Restaurants », « Épicerie »…). */
   titre: string;
+  /** Type de commerce courant (ex. 'restaurants', 'epicerie', 'tout'). */
+  typeCommerce?: string;
 };
 
 const PAGE = 24;
@@ -66,13 +69,18 @@ function Tuiles({ restos }: { restos: CarteResto[] }) {
   );
 }
 
-export default function Discovery({ restos: statiques, cuisines, livreur, promos, titre }: Props) {
+export default function Discovery({ restos: statiques, cuisines, livreur, promos, titre, typeCommerce = 'tout' }: Props) {
   const t = useT();
   const [q, setQ] = useState('');
+  const [liveRestos, setLiveRestos] = useState<{ overrides: Record<string, RestaurantGestion>; custom: RestaurantGestion[] } | null>(null);
   // Recherche lancée depuis l'accueil (/c/tout?q=…) : page statique, on lit l'URL au montage.
   useEffect(() => {
     const depart = new URLSearchParams(window.location.search).get('q');
     if (depart) setQ(depart);
+    fetch('/api/restos-live')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setLiveRestos({ overrides: d.overrides ?? {}, custom: d.custom ?? [] }))
+      .catch(() => {});
   }, []);
   const requete = useDeferredValue(q);
   const maintenant = useMaintenant();
@@ -100,17 +108,49 @@ export default function Discovery({ restos: statiques, cuisines, livreur, promos
   const fermes = useMemo(() => new Set(reglages?.restosFermes ?? []), [reglages]);
 
   // Avant l'hydratation (HTML statique), tout est affiché « ouvert » sans libellé : rien de faux ne s'affiche.
-  const restos: CarteResto[] = useMemo(
-    () =>
-      statiques.map(({ horaires, ...r }) => ({
-        ...r,
-        plats: plats?.[r.slug] ?? [],
-        ouvert: !stop && !fermes.has(r.slug) && (maintenant ? estOuvert(horaires, maintenant) : true),
-        libelle: stop ?? (fermes.has(r.slug) ? t('Indisponible') : maintenant ? libelleHoraire(horaires, maintenant, t) : ''),
-        promo: etiquettePromo(promosVigueur, r.slug, t('dès'), t('Plats en promo'))?.texte ?? null,
-      })),
-    [statiques, maintenant, plats, stop, t, promosVigueur, fermes],
-  );
+  const restos: CarteResto[] = useMemo(() => {
+    const overrides = liveRestos?.overrides ?? {};
+    const customRows = (liveRestos?.custom ?? [])
+      .filter((c) => c.actif && (typeCommerce === 'tout' || (c.type_commerce ?? 'restaurants') === typeCommerce))
+      .map((c): CarteResto => {
+        const ajouts = (c.plats_overrides?.ajouts ?? []).filter((p) => !p.indispo);
+        return {
+          slug: c.slug,
+          nom: c.nom || c.slug,
+          logo: c.image || null,
+          couverture: c.image || null,
+          note: 5,
+          nbAvis: 0,
+          delai: c.delai || '25-35 min',
+          cuisines: c.cuisines ?? [],
+          categories: Array.from(new Set(ajouts.map((p) => p.categorie || 'Carte'))),
+          plats: ajouts.map((p) => p.nom),
+          popularite: 999999,
+          ouvert: !stop && !fermes.has(c.slug),
+          libelle: stop ?? (fermes.has(c.slug) ? t('Indisponible') : ''),
+          promo: etiquettePromo(promosVigueur, c.slug, t('dès'), t('Plats en promo'))?.texte ?? null,
+          href: `/resto-live?slug=${encodeURIComponent(c.slug)}`,
+        };
+      });
+
+    const statiquesFiltres = statiques
+      .filter((r) => overrides[r.slug]?.actif !== false)
+      .map(({ horaires, ...r }) => {
+        const ov = overrides[r.slug];
+        return {
+          ...r,
+          ...(ov?.nom ? { nom: ov.nom } : {}),
+          ...(ov?.cuisines?.length ? { cuisines: ov.cuisines } : {}),
+          ...(ov?.delai ? { delai: ov.delai } : {}),
+          ...(ov?.image ? { couverture: ov.image, logo: ov.image } : {}),
+          plats: plats?.[r.slug] ?? [],
+          ouvert: !stop && !fermes.has(r.slug) && (maintenant ? estOuvert(horaires, maintenant) : true),
+          libelle: stop ?? (fermes.has(r.slug) ? t('Indisponible') : maintenant ? libelleHoraire(horaires, maintenant, t) : ''),
+          promo: etiquettePromo(promosVigueur, r.slug, t('dès'), t('Plats en promo'))?.texte ?? null,
+        };
+      });
+    return [...customRows, ...statiquesFiltres];
+  }, [statiques, liveRestos, typeCommerce, maintenant, plats, stop, t, promosVigueur, fermes]);
   const [cuisine, setCuisine] = useState<string | null>(null);
   const [ouvertsSeulement, setOuvertsSeulement] = useState(false);
   const [promosSeulement, setPromosSeulement] = useState(false);

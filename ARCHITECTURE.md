@@ -149,3 +149,16 @@ Coupons, reviews, banners, geolocation/distance, multi-restaurant carts, order h
 ## Hébergement Vercel (démo)
 
 `api/[...slug].ts` est l'unique Function Vercel : il dispatche `/api/<nom>[/<id>]` vers les mêmes fonctions de `lib/serveur.ts` que `functions/api/*` (Cloudflare). Pas de binding : `process.env` joue le rôle de `env` (stockage Supabase), et `env.ASSETS.fetch` est remplacé par un `fetch` vers le site déployé (`assetJson`). Le site reste `output: 'export'` : une route `app/api/*/route.ts` POST casserait le build statique, d'où le dossier `api/` à la racine. Test : `test/api-route.test.ts` (hors de `api/`, sinon Vercel le déploierait comme route). `api/tsconfig.json` force la sortie CommonJS : sans lui, @vercel/node suit `module: esnext` du tsconfig racine et la Function plante (`Cannot use import statement outside a module`). Secrets : ne jamais suivre `secrets/` ni `deploy-*.log` (ignorés).
+
+
+## Comptes clients, suivi, CRM, Admin et gestion live des restaurants (ajouté 2026-11-23)
+
+- **Authentification (`lib/plateforme.ts`, `/api/auth/*`)** : Supabase Auth REST (`/auth/v1/token`, `/auth/v1/admin/users`, `/auth/v1/user`), cookie `HttpOnly; SameSite=Lax` (`liv_session`). Le rôle (`client`, `livreur`, `admin`) est lu exclusivement dans `public.profiles` (et `app_metadata`, jamais `user_metadata`). Toutes les tables ont RLS activé sans politique publique (accès uniquement serveur via `SUPABASE_SECRET_KEY`).
+- **Compte client et suivi (`/compte`, `/api/compte/*`, `/api/suivi`)** : inscription / connexion, profil pré-rempli dans le panier, suivi des commandes en 5 étapes (`nouvelle` → `confirmee` → `en_preparation` → `en_livraison` → `livree` / `annulee`) avec rafraîchissement auto. Les invités peuvent aussi suivre leur commande avec N° + téléphone (`/api/suivi`).
+- **CRM cumulatif (`public.clients_crm`)** : chaque commande (`traiterCommande`) et chaque colis (`traiterColis`), connecté ou invité, cumule automatiquement le client (nom, téléphone, email, dernière adresse/position, `nb_commandes`, `total_depense`, première/dernière commande) pour réutilisation marketing.
+- **Tableau de bord Admin (`/admin`, `/api/admin/*`)** :
+  - **Commandes** : filtres, changement de statut avec notification email optionnelle, assignation de livreur (`public.livreurs`), boutons appel/WhatsApp.
+  - **Clients CRM** : recherche, notes/tags, export CSV, campagnes **Email** (via Resend/Brevo) et **WhatsApp** (liens `wa.me` personnalisés), historisées dans `public.campagnes_notifications`.
+  - **Livreurs** : CRUD complet (ajouter, modifier, activer/désactiver, disponible/occupé).
+  - **Restaurants & plats (`public.restaurants_gestion`, `/api/restos-live`, `/resto-live`)** : modifier/désactiver n'importe quel resto du catalogue, ajouter de nouveaux restos custom, éditer/ajouter/masquer des plats. Effet immédiat sur `Discovery`, `Vivant`, `/resto-live` et la validation serveur `traiterCommande` sans rebuild.
+- **Comptes de test** : script idempotent `node scripts/seed-comptes.mjs` (`admin@livraison.tn` et `client@livraison.tn`).

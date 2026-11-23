@@ -20,6 +20,7 @@ import { envoyerWhatsApp } from './whatsapp';
 import { cleVapidPublique, endpointValide, envoyerPush, htmlPush } from './push';
 import { ficheColis, ficheRepas, htmlCommandes, ID_FICHE, vueCommandes, type Fiche, type Statut } from './historique';
 import { stockage, type EnvStockage, type SeauR2 } from './supabase';
+import { enrichirCommandeMeta, enregistrerClientCRM, fusionnerDonneesResto, lireRestaurantsGestion, verifierUtilisateur } from './plateforme';
 
 export type { SeauR2 };
 
@@ -101,7 +102,14 @@ export async function traiterCommande(
   const promoCode = codeSaisi ? promos.find((p) => p.code === codeSaisi) : undefined;
   if (promoCode?.limite && (await nbUsages(env, livreur, promoCode.code!, promoCode.limite)) >= promoCode.limite) return erreur(400, 'Ce code a atteint son nombre maximum d’utilisations.');
 
-  const donnees = await lire(parsed.data.restoSlug);
+  const [donneesStatiques, gestions] = await Promise.all([
+    lire(parsed.data.restoSlug),
+    lireRestaurantsGestion(env, parsed.data.restoSlug),
+  ]);
+  const origine = new URL(req.url).origin;
+  const fusion = fusionnerDonneesResto(donneesStatiques, gestions[0] ?? null, origine + '/media');
+  if (fusion.desactive) return erreur(400, 'Ce restaurant est indisponible pour le moment.');
+  const donnees = fusion.donnees;
   if (!donnees) return erreur(404, 'Restaurant introuvable.');
   // Prix client = prix du resto (ou nouveau prix saisi par le livreur) + majoration ; plats indisponibles retirés.
   const slug = donnees.resto.slug;
@@ -110,7 +118,6 @@ export async function traiterCommande(
   const commande = calculerCommande({ ...livreur, livraison, fraisService: fraisService ?? undefined, livraisonGratuite: livraisonGratuite ?? undefined, commission, promos }, donnees.resto, menu, parsed.data, new Date(), { commandeMin, supplement });
   if ('erreur' in commande) return erreur(400, commande.erreur);
 
-  const origine = new URL(req.url).origin;
   // Images de l'email : Gmail ne charge pas « /media/... », il faut une URL absolue.
   const media = donnees.media.startsWith('/') ? origine + donnees.media : donnees.media;
   const ref = refCommande();
@@ -125,7 +132,27 @@ export async function traiterCommande(
   const texte = [`N° ${ref}`, messageCommande(commande, livreur), ...(lienBon ? ['', `Bon pour le resto : ${lienBon}`] : [])].join('\n');
   const texteWhatsApp = messageWhatsApp(commande, livreur, ref, lienBon);
   const html = htmlCommande(commande, livreur, ref, media, lienBon);
-  await enregistrerFiche(env, livreur, ficheRepas(commande, ref, maintenant, html));
+  const fiche = ficheRepas(commande, ref, maintenant, html);
+  await enregistrerFiche(env, livreur, fiche);
+  const utilisateur = await verifierUtilisateur(env, req).catch(() => null);
+  await Promise.all([
+    enrichirCommandeMeta(env, livreur.whatsapp, fiche.id, {
+      userId: utilisateur?.id ?? null,
+      clientEmail: commande.client.email ?? utilisateur?.email ?? null,
+      restoSlug: slug,
+      maintenant,
+    }),
+    enregistrerClientCRM(env, {
+      telephone: commande.client.telephone,
+      nom: commande.client.nom,
+      email: commande.client.email ?? utilisateur?.email ?? null,
+      adresse: commande.client.adresse,
+      position: commande.position,
+      montantCommande: commande.total,
+      userId: utilisateur?.id ?? null,
+      maintenant,
+    }),
+  ]);
 
   const [email, whatsappAuto] = await Promise.all([
     envoyerEmail(
@@ -1300,8 +1327,29 @@ export async function traiterColis(req: Request, env: Env, livreur: Livreur): Pr
   if ('erreur' in colis) return erreur(400, colis.erreur);
 
   const ref = refCommande();
+  const maintenant = new Date();
   const html = htmlColis(colis, livreur, ref);
-  await enregistrerFiche(env, livreur, ficheColis(colis, ref, new Date(), html));
+  const fiche = ficheColis(colis, ref, maintenant, html);
+  await enregistrerFiche(env, livreur, fiche);
+  const utilisateur = await verifierUtilisateur(env, req).catch(() => null);
+  await Promise.all([
+    enrichirCommandeMeta(env, livreur.whatsapp, fiche.id, {
+      userId: utilisateur?.id ?? null,
+      clientEmail: utilisateur?.email ?? null,
+      restoSlug: null,
+      maintenant,
+    }),
+    enregistrerClientCRM(env, {
+      telephone: colis.client.telephone,
+      nom: colis.client.nom,
+      email: utilisateur?.email ?? null,
+      adresse: colis.depart.adresse,
+      position: colis.depart.position,
+      montantCommande: colis.frais,
+      userId: utilisateur?.id ?? null,
+      maintenant,
+    }),
+  ]);
   const [email] = await Promise.all([
     envoyerEmail(
     livreur.email,

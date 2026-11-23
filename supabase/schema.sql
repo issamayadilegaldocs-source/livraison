@@ -42,7 +42,7 @@ create table if not exists public.commandes (
   constraint commandes_whatsapp_chk check (livreur_whatsapp ~ '^[0-9]{8,15}$'),
   constraint commandes_id_chk check (id ~ '^[0-9]{13}-[A-Z0-9]{6}$'),
   constraint commandes_type_chk check (type in ('repas', 'colis')),
-  constraint commandes_statut_chk check (statut in ('nouvelle', 'livree', 'annulee')),
+  constraint commandes_statut_chk check (statut in ('nouvelle', 'confirmee', 'en_preparation', 'en_livraison', 'livree', 'annulee')),
   constraint commandes_total_chk check (total >= 0)
 );
 
@@ -121,3 +121,125 @@ on conflict (id) do update
 --   $$delete from public.commandes where creee < now() - interval '90 days';$$
 -- );
 -- =============================================================================
+
+
+-- =============================================================================
+-- Accounts, Cumulative CRM, Rider Management, Live Restaurants & Campaigns
+-- =============================================================================
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text not null unique,
+  role text not null default 'client',
+  nom text not null default '',
+  telephone text,
+  adresse text,
+  position jsonb,
+  marketing_opt_in boolean not null default true,
+  actif boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint profiles_role_chk check (role in ('client', 'livreur', 'admin'))
+);
+
+create table if not exists public.livreurs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  nom text not null,
+  telephone text not null unique,
+  email text,
+  ville text not null default 'Sfax',
+  vehicule text,
+  actif boolean not null default true,
+  disponible boolean not null default true,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint livreurs_telephone_chk check (telephone ~ '^[0-9]{8,15}$')
+);
+
+create table if not exists public.clients_crm (
+  id uuid primary key default gen_random_uuid(),
+  telephone text not null unique,
+  user_id uuid references auth.users(id) on delete set null,
+  nom text not null,
+  email text,
+  derniere_adresse text,
+  derniere_position jsonb,
+  nb_commandes integer not null default 0,
+  total_depense numeric(12, 3) not null default 0,
+  premiere_commande_at timestamptz,
+  derniere_commande_at timestamptz,
+  marketing_email boolean not null default true,
+  marketing_whatsapp boolean not null default true,
+  notes_admin text,
+  tags text[] not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint clients_crm_tel_chk check (telephone ~ '^[0-9]{8,15}$'),
+  constraint clients_crm_nb_chk check (nb_commandes >= 0),
+  constraint clients_crm_total_chk check (total_depense >= 0)
+);
+
+alter table public.commandes
+  add column if not exists user_id uuid references auth.users(id) on delete set null,
+  add column if not exists client_email text,
+  add column if not exists resto_slug text,
+  add column if not exists livreur_id uuid references public.livreurs(id) on delete set null,
+  add column if not exists livreur_nom text,
+  add column if not exists statut_updated_at timestamptz not null default now(),
+  add column if not exists historique_statuts jsonb not null default '[]'::jsonb;
+
+create table if not exists public.restaurants_gestion (
+  slug text primary key,
+  source text not null default 'override',
+  actif boolean not null default true,
+  nom text,
+  adresse text,
+  telephone text,
+  cuisines text[],
+  type_commerce text,
+  image text,
+  delai text,
+  horaires jsonb,
+  position jsonb,
+  plats_overrides jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint restaurants_gestion_slug_chk check (slug ~ '^[a-z0-9-]{1,120}$'),
+  constraint restaurants_gestion_source_chk check (source in ('override', 'custom'))
+);
+
+create table if not exists public.campagnes_notifications (
+  id uuid primary key default gen_random_uuid(),
+  canal text not null,
+  sujet text,
+  message text not null,
+  nb_destinataires integer not null default 0,
+  nb_envoyes integer not null default 0,
+  cree_par uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint campagnes_canal_chk check (canal in ('email', 'whatsapp')),
+  constraint campagnes_nb_chk check (nb_destinataires >= 0 and nb_envoyes >= 0)
+);
+
+alter table public.profiles enable row level security;
+alter table public.livreurs enable row level security;
+alter table public.clients_crm enable row level security;
+alter table public.restaurants_gestion enable row level security;
+alter table public.campagnes_notifications enable row level security;
+
+revoke all on table
+  public.profiles,
+  public.livreurs,
+  public.clients_crm,
+  public.restaurants_gestion,
+  public.campagnes_notifications
+from public, anon, authenticated;
+
+grant select, insert, update, delete on table
+  public.profiles,
+  public.livreurs,
+  public.clients_crm,
+  public.restaurants_gestion,
+  public.campagnes_notifications
+to service_role;

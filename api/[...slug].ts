@@ -1,4 +1,5 @@
-// Vercel Function : route /api/* vers la même logique que functions/api/* (Cloudflare Pages), via lib/serveur.ts.
+// Vercel Function : route /api/* vers la même logique que functions/api/* (Cloudflare Pages), via lib/serveur.ts,
+// et vers les routes comptes / suivi / CRM / admin / restaurants live (lib/plateforme.ts).
 // Le site reste un export statique (out/) ; seul /api/* tourne ici. Config du livreur : .build/livreur.json (écrit par `npm run build`).
 import livreur from '../.build/livreur.json';
 import type { Livreur } from '../lib/livreur';
@@ -6,6 +7,9 @@ import {
   etatLivreur, pageCommandes, pageConfig, pagePush, recevoirBon, servirBon,
   traiterColis, traiterCommande, verifierCoupon, type DonneesResto, type Env,
 } from '../lib/serveur';
+import {
+  endpointRestosLive, gererAdmin, gererAuth, gererCompte, suiviPublic,
+} from '../lib/plateforme';
 
 const L = livreur as Livreur;
 // Pas de binding Cloudflare ici : le stockage est Supabase (SUPABASE_URL + SUPABASE_SECRET_KEY) ; les fichiers
@@ -24,6 +28,11 @@ export async function route(request: Request): Promise<Response> {
   const [, , nom = '', id = ''] = new URL(request.url).pathname.split('/'); // /api/<nom>[/<id>]
   const m = request.method;
   switch (nom) {
+    case 'auth': return gererAuth(request, env, id);
+    case 'compte': return gererCompte(request, env, id);
+    case 'suivi': return m === 'GET' ? suiviPublic(request, env) : NON('GET');
+    case 'restos-live': return m === 'GET' ? endpointRestosLive(request, env) : NON('GET');
+    case 'admin': return gererAdmin(request, env, L, id);
     case 'etat': return m === 'GET' ? etatLivreur(request, env, L) : NON('GET');
     case 'commande':
       return m === 'POST'

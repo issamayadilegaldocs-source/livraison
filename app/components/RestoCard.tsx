@@ -20,6 +20,8 @@ export type CarteResto = {
   libelle: string;
   /** Promo du livreur pour ce resto (« −10 % dès 15 DT »), sinon null. */
   promo?: string | null;
+  /** Lien personnalisé (ex. /resto-live?slug=… pour un resto ajouté par l'admin). */
+  href?: string;
 };
 
 export function Etoiles({ note, nbAvis }: { note: number; nbAvis: number }) {
@@ -38,7 +40,7 @@ const delai = (d: string, min: string) => d.replace(/\s*min$/i, ` ${min}`);
 export function RestoTile({ r, className = '' }: { r: CarteResto; className?: string }) {
   const t = useT();
   return (
-    <Link href={`/resto/${r.slug}`} className={`group flex flex-col gap-3 ${className}`}>
+    <Link href={r.href ?? `/resto/${r.slug}`} className={`group flex flex-col gap-3 ${className}`}>
       <div className="relative aspect-[16/10] overflow-hidden rounded-[20px] bg-white">
         <Img src={r.couverture} alt="" initiale={r.nom} className="h-full w-full text-5xl transition duration-500 group-hover:scale-105" />
         {r.delai && (
@@ -71,7 +73,7 @@ export function RestoTile({ r, className = '' }: { r: CarteResto; className?: st
 export function RestoRow({ r, plat }: { r: CarteResto; plat?: string | null }) {
   const t = useT();
   return (
-    <Link href={`/resto/${r.slug}`} className="flex items-center gap-4 rounded-[20px] border border-black/5 bg-white p-2.5 transition hover:shadow-md sm:p-3">
+    <Link href={r.href ?? `/resto/${r.slug}`} className="flex items-center gap-4 rounded-[20px] border border-black/5 bg-white p-2.5 transition hover:shadow-md sm:p-3">
       <span className="relative h-[76px] w-[76px] shrink-0 overflow-hidden rounded-xl sm:h-24 sm:w-24">
         <Img src={r.logo ?? r.couverture} alt="" initiale={r.nom} className="h-full w-full text-2xl" />
         {!r.ouvert && <span className="absolute inset-0 bg-black/45" aria-hidden />}

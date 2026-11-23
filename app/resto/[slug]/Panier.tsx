@@ -124,6 +124,18 @@ export default function Panier({ slug, nomResto, ouvert, libelle, messageFerme, 
     } catch {
       /* stockage indisponible */
     }
+    // Compte connecté : préremplit les champs encore vides avec le profil serveur.
+    fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const u = d?.user;
+        if (!u) return;
+        if (u.nom) setNom((v) => v || u.nom);
+        if (u.telephone) setTel((v) => v || String(u.telephone).replace(/^216/, ''));
+        if (u.email) setEmail((v) => v || u.email);
+        if (u.adresse) setAdresse((v) => v || u.adresse);
+      })
+      .catch(() => {});
   }, [slug]);
 
   // Retour du téléphone : remonte d'une étape, sans quitter la page.
@@ -743,6 +755,12 @@ export default function Panier({ slug, nomResto, ouvert, libelle, messageFerme, 
             <h3 className="m-0 text-2xl font-extrabold">{t('Merci {prenom} !', { prenom: resultat.prenom })}</h3>
             <p className="m-0 text-sm text-muted">{t('Commande N° {ref} envoyée. Le livreur va vous appeler pour confirmer.', { ref: resultat.ref })}</p>
             <p className="m-0 mt-2 text-lg font-bold">{t('À payer à la livraison : {p}', { p: formaterPrix(resultat.total) })}</p>
+            <a
+              href={`/compte?ref=${encodeURIComponent(resultat.ref)}`}
+              className="mt-4 inline-flex h-11 items-center gap-2 rounded-full bg-ink px-5 text-sm font-extrabold text-white hover:opacity-90"
+            >
+              📍 Suivre ma commande en direct
+            </a>
           </div>
         </PleinEcran>
       )}

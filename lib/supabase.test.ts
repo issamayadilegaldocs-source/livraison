@@ -102,7 +102,7 @@ function fauxSupabase() {
         const k = `${w}/${id}`;
         const cur = commandes.get(k);
         if (!cur) return Response.json([]);
-        commandes.set(k, { ...cur, statut: body.statut, fin: body.fin });
+        commandes.set(k, { ...cur, ...body });
         return Response.json([{ id }]);
       }
     }

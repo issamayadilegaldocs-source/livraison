@@ -10,6 +10,7 @@ import BandeauLivreur from './components/BandeauLivreur';
 import BandePromo from './components/BandePromo';
 import { vueClient } from '@/lib/commission';
 import BandeauInstaller from './components/BandeauInstaller';
+import BoutonCompte from './components/BoutonCompte';
 import MasquerEntete from './components/MasquerEntete';
 import './globals.css';
 
@@ -56,13 +57,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <span className="block text-xs font-medium text-muted"><T k="Livraison à {ville}" v={{ ville: l.ville }} /></span>
               </span>
             </Link>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <BoutonCompte />
               <ChoixLangue />
               <a
                 href={`https://wa.me/${l.whatsapp}`}
-                className="flex h-10 shrink-0 items-center gap-2 rounded-full bg-[#25D366] px-4 text-sm font-bold text-white hover:opacity-90"
+                className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-[#25D366] px-3 text-sm font-bold text-white hover:opacity-90 sm:px-4"
               >
-                <span aria-hidden>✆</span> <T k="Contact" />
+                <span aria-hidden>✆</span> <span className="hidden sm:inline"><T k="Contact" /></span>
               </a>
             </div>
           </div>

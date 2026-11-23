@@ -5,7 +5,7 @@ import type { ColisCalcule } from './colis';
 import type { CommandeCalculee } from './commande';
 import { formaterPrix } from './commande';
 
-export type Statut = 'nouvelle' | 'livree' | 'annulee';
+export type Statut = 'nouvelle' | 'confirmee' | 'en_preparation' | 'en_livraison' | 'livree' | 'annulee';
 export type Fiche = {
   id: string;
   type: 'repas' | 'colis';
@@ -72,7 +72,7 @@ export function ficheColis(c: ColisCalcule, ref: string, maintenant: Date, html?
 export function lireFiche(brut: unknown): Fiche | null {
   const f = brut as Partial<Fiche> | null;
   if (!f || typeof f !== 'object' || typeof f.id !== 'string' || !ID_FICHE.test(f.id)) return null;
-  if (!['nouvelle', 'livree', 'annulee'].includes(f.statut as string) || !Array.isArray(f.lignes) || !f.client) return null;
+  if (!['nouvelle', 'confirmee', 'en_preparation', 'en_livraison', 'livree', 'annulee'].includes(f.statut as string) || !Array.isArray(f.lignes) || !f.client) return null;
   return f as Fiche;
 }
 

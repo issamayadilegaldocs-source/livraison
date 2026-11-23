@@ -1,0 +1,553 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import Link from '@/app/components/Lien';
+import { CLE_CLIENT } from '@/lib/client';
+
+type Statut = 'nouvelle' | 'confirmee' | 'en_preparation' | 'en_livraison' | 'livree' | 'annulee';
+
+type Profil = {
+  id: string;
+  email: string;
+  role: 'client' | 'livreur' | 'admin';
+  nom: string;
+  telephone: string | null;
+  adresse: string | null;
+  marketing_opt_in: boolean;
+};
+
+type Commande = {
+  id: string;
+  ref: string;
+  type: 'repas' | 'colis';
+  statut: Statut;
+  creee: string;
+  fin: string | null;
+  statut_updated_at: string | null;
+  historique_statuts: { statut: Statut; at: string }[];
+  titre: string;
+  lignes: string[];
+  client_nom: string;
+  adresse: string;
+  note: string | null;
+  total: number;
+  livreur_nom: string | null;
+};
+
+const ETAPES: { cle: Statut; label: string }[] = [
+  { cle: 'nouvelle', label: 'Reçue' },
+  { cle: 'confirmee', label: 'Confirmée' },
+  { cle: 'en_preparation', label: 'Préparation' },
+  { cle: 'en_livraison', label: 'En route' },
+  { cle: 'livree', label: 'Livrée' },
+];
+
+const BADGE: Record<Statut, { texte: string; cls: string }> = {
+  nouvelle: { texte: 'Reçue', cls: 'bg-blue-100 text-blue-800' },
+  confirmee: { texte: 'Confirmée', cls: 'bg-indigo-100 text-indigo-800' },
+  en_preparation: { texte: 'En préparation', cls: 'bg-amber-100 text-amber-800' },
+  en_livraison: { texte: 'En livraison', cls: 'bg-purple-100 text-purple-800' },
+  livree: { texte: 'Livrée', cls: 'bg-emerald-100 text-emerald-800' },
+  annulee: { texte: 'Annulée', cls: 'bg-red-100 text-red-700' },
+};
+
+const fmtPrix = (n: number) => `${Number(n).toFixed(3).replace('.', ',')} DT`;
+const fmtDate = (iso: string) => {
+  try {
+    return new Intl.DateTimeFormat('fr-FR', {
+      timeZone: 'Africa/Tunis',
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+};
+
+function CarteCommande({ c }: { c: Commande }) {
+  const b = BADGE[c.statut] ?? BADGE.nouvelle;
+  const idxActuel = ETAPES.findIndex((e) => e.cle === c.statut);
+
+  return (
+    <article className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-base font-extrabold text-ink">{c.titre}</span>
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-extrabold ${b.cls}`}>{b.texte}</span>
+          </div>
+          <p className="mt-0.5 text-xs font-semibold text-muted">
+            N° {c.ref} · {fmtDate(c.creee)}
+          </p>
+        </div>
+        <div className="shrink-0 text-right text-base font-extrabold text-ink">{fmtPrix(c.total)}</div>
+      </div>
+
+      {c.statut !== 'annulee' ? (
+        <div className="mt-4">
+          <div className="grid grid-cols-5 gap-1">
+            {ETAPES.map((e, i) => {
+              const atteint = idxActuel >= i;
+              return (
+                <div key={e.cle} className="flex flex-col items-center gap-1">
+                  <div className={`h-2 w-full rounded-full ${atteint ? 'bg-primary' : 'bg-black/10'}`} />
+                  <span className={`text-center text-[10px] font-bold leading-tight sm:text-xs ${atteint ? 'text-ink' : 'text-muted'}`}>
+                    {e.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+          Cette commande a été annulée{c.fin ? ` le ${fmtDate(c.fin)}` : ''}.
+        </p>
+      )}
+
+      {c.livreur_nom && (
+        <p className="mt-3 text-xs font-bold text-ink">🛵 Livreur assigné : {c.livreur_nom}</p>
+      )}
+
+      <ul className="mt-3 space-y-1 border-t border-black/5 pt-3 text-xs text-ink/80 sm:text-sm">
+        {(c.lignes ?? []).map((l, i) => (
+          <li key={i}>• {l}</li>
+        ))}
+      </ul>
+
+      <p className="mt-2 text-xs text-muted">
+        📍 {c.adresse}
+        {c.note ? ` · 📝 ${c.note}` : ''}
+      </p>
+    </article>
+  );
+}
+
+const champ =
+  'mt-1 w-full rounded-xl border border-black/10 bg-white px-3.5 py-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20';
+
+export default function PageCompte() {
+  const [chargement, setChargement] = useState(true);
+  const [user, setUser] = useState<Profil | null>(null);
+  const [ongletAuth, setOngletAuth] = useState<'login' | 'register' | 'suivi'>('login');
+  const [ongletCompte, setOngletCompte] = useState<'commandes' | 'profil'>('commandes');
+  const [commandes, setCommandes] = useState<Commande[]>([]);
+  const [msg, setMsg] = useState('');
+  const [erreur, setErreur] = useState('');
+  const [envoi, setEnvoi] = useState(false);
+
+  // Formulaires auth
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [nom, setNom] = useState('');
+  const [tel, setTel] = useState('');
+  const [adresse, setAdresse] = useState('');
+  const [optIn, setOptIn] = useState(true);
+
+  // Suivi invité
+  const [suiviRef, setSuiviRef] = useState('');
+  const [suiviTel, setSuiviTel] = useState('');
+  const [cmdSuivi, setCmdSuivi] = useState<Commande | null>(null);
+
+  const chargerCommandes = useCallback(async () => {
+    const res = await fetch('/api/compte/commandes', { credentials: 'same-origin' });
+    if (res.ok) {
+      const d = await res.json();
+      setCommandes(d.commandes ?? []);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Pré-remplir onglet suivi si ?ref= dans l'URL
+    const p = new URLSearchParams(window.location.search);
+    const refUrl = p.get('ref');
+    if (refUrl) {
+      setSuiviRef(refUrl);
+      setOngletAuth('suivi');
+    }
+
+    fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : { user: null }))
+      .then((d) => {
+        if (d?.user) {
+          setUser(d.user);
+          setNom(d.user.nom ?? '');
+          setTel(d.user.telephone ? d.user.telephone.replace(/^216/, '') : '');
+          setAdresse(d.user.adresse ?? '');
+          setOptIn(d.user.marketing_opt_in ?? true);
+          chargerCommandes();
+        }
+      })
+      .finally(() => setChargement(false));
+  }, [chargerCommandes]);
+
+  // Rafraîchissement automatique des commandes toutes les 20s quand connecté
+  useEffect(() => {
+    if (!user) return;
+    const t = setInterval(() => {
+      if (!document.hidden) chargerCommandes();
+    }, 20000);
+    return () => clearInterval(t);
+  }, [user, chargerCommandes]);
+
+  async function connexion(e: React.FormEvent) {
+    e.preventDefault();
+    setErreur('');
+    setMsg('');
+    setEnvoi(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email, password }),
+      });
+      const d = await res.json();
+      if (!res.ok) return setErreur(d.erreur ?? 'Connexion échouée.');
+      if (d.user?.role === 'admin') {
+        window.location.href = '/admin';
+        return;
+      }
+      setUser(d.user);
+      setNom(d.user.nom ?? '');
+      setTel(d.user.telephone ? d.user.telephone.replace(/^216/, '') : '');
+      setAdresse(d.user.adresse ?? '');
+      setOptIn(d.user.marketing_opt_in ?? true);
+      chargerCommandes();
+    } catch {
+      setErreur('Erreur réseau.');
+    } finally {
+      setEnvoi(false);
+    }
+  }
+
+  async function inscription(e: React.FormEvent) {
+    e.preventDefault();
+    setErreur('');
+    setMsg('');
+    setEnvoi(true);
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email, password, nom, telephone: tel, adresse, marketing_opt_in: optIn }),
+      });
+      const d = await res.json();
+      if (!res.ok) return setErreur(d.erreur ?? 'Inscription échouée.');
+      setUser(d.user);
+      setMsg('Compte créé avec succès !');
+      chargerCommandes();
+    } catch {
+      setErreur('Erreur réseau.');
+    } finally {
+      setEnvoi(false);
+    }
+  }
+
+  async function sauvegarderProfil(e: React.FormEvent) {
+    e.preventDefault();
+    setErreur('');
+    setMsg('');
+    setEnvoi(true);
+    try {
+      const res = await fetch('/api/compte/profil', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ nom, telephone: tel, adresse, marketing_opt_in: optIn }),
+      });
+      const d = await res.json();
+      if (!res.ok) return setErreur(d.erreur ?? 'Mise à jour impossible.');
+      setUser(d.profile);
+      try {
+        const prev = JSON.parse(localStorage.getItem(CLE_CLIENT) ?? '{}');
+        localStorage.setItem(CLE_CLIENT, JSON.stringify({ ...prev, nom: d.profile.nom, tel: tel || prev.tel || '', email: d.profile.email, adresse: d.profile.adresse ?? prev.adresse ?? '' }));
+      } catch {
+        /* ignore */
+      }
+      setMsg('Profil enregistré.');
+    } catch {
+      setErreur('Erreur réseau.');
+    } finally {
+      setEnvoi(false);
+    }
+  }
+
+  async function deconnexion() {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    setUser(null);
+    setCommandes([]);
+    setPassword('');
+    window.location.reload();
+  }
+
+  async function chercherSuivi(e: React.FormEvent) {
+    e.preventDefault();
+    setErreur('');
+    setCmdSuivi(null);
+    setEnvoi(true);
+    try {
+      const res = await fetch(`/api/suivi?ref=${encodeURIComponent(suiviRef.trim())}&tel=${encodeURIComponent(suiviTel.trim())}`);
+      const d = await res.json();
+      if (!res.ok) return setErreur(d.erreur ?? 'Commande introuvable.');
+      setCmdSuivi(d.commande);
+    } catch {
+      setErreur('Erreur réseau.');
+    } finally {
+      setEnvoi(false);
+    }
+  }
+
+  if (chargement) {
+    return (
+      <div className="mx-auto max-w-xl py-10">
+        <div className="h-48 animate-pulse rounded-3xl bg-white" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-lg py-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h1 className="m-0 text-2xl font-extrabold tracking-tight">Mon compte & Suivi</h1>
+          <Link href="/" className="text-sm font-bold text-primary underline">
+            ← Accueil
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-3 gap-1.5 rounded-2xl bg-black/5 p-1">
+          {([
+            ['login', 'Connexion'],
+            ['register', 'Inscription'],
+            ['suivi', 'Suivi invité'],
+          ] as const).map(([cle, label]) => (
+            <button
+              key={cle}
+              type="button"
+              onClick={() => {
+                setOngletAuth(cle);
+                setErreur('');
+                setMsg('');
+              }}
+              className={`h-11 rounded-xl text-xs font-extrabold transition sm:text-sm ${
+                ongletAuth === cle ? 'bg-white text-ink shadow-sm' : 'text-muted hover:text-ink'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {erreur && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{erreur}</p>}
+        {msg && <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{msg}</p>}
+
+        {ongletAuth === 'login' && (
+          <form onSubmit={connexion} className="mt-4 flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm">
+            <label className="text-sm font-bold">
+              Email
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vous@exemple.com" className={champ} />
+            </label>
+            <label className="text-sm font-bold">
+              Mot de passe
+              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={champ} />
+            </label>
+            <button
+              type="submit"
+              disabled={envoi}
+              className="mt-2 h-12 rounded-2xl bg-primary text-base font-extrabold text-white hover:opacity-95 disabled:opacity-50"
+            >
+              {envoi ? 'Connexion…' : 'Se connecter'}
+            </button>
+            <p className="mt-1 text-center text-xs text-muted">
+              Pas encore de compte ?{' '}
+              <button type="button" onClick={() => setOngletAuth('register')} className="font-bold text-primary underline">
+                Créer un compte
+              </button>
+            </p>
+          </form>
+        )}
+
+        {ongletAuth === 'register' && (
+          <form onSubmit={inscription} className="mt-4 flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm">
+            <label className="text-sm font-bold">
+              Nom complet
+              <input type="text" required value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex. Sami Ben Ali" className={champ} />
+            </label>
+            <label className="text-sm font-bold">
+              Téléphone (8 chiffres)
+              <input type="tel" required value={tel} onChange={(e) => setTel(e.target.value)} placeholder="22 123 456" className={champ} />
+            </label>
+            <label className="text-sm font-bold">
+              Email
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vous@exemple.com" className={champ} />
+            </label>
+            <label className="text-sm font-bold">
+              Mot de passe (min. 6 caractères)
+              <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={champ} />
+            </label>
+            <label className="text-sm font-bold">
+              Adresse habituelle (facultatif)
+              <input type="text" value={adresse} onChange={(e) => setAdresse(e.target.value)} placeholder="Ex. Route Gremda km 3, Sfax" className={champ} />
+            </label>
+            <label className="flex items-start gap-2.5 pt-1 text-xs font-medium text-muted">
+              <input type="checkbox" checked={optIn} onChange={(e) => setOptIn(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
+              <span>Recevoir le suivi de mes commandes et les offres spéciales par email et WhatsApp.</span>
+            </label>
+            <button
+              type="submit"
+              disabled={envoi}
+              className="mt-2 h-12 rounded-2xl bg-primary text-base font-extrabold text-white hover:opacity-95 disabled:opacity-50"
+            >
+              {envoi ? 'Création…' : 'Créer mon compte'}
+            </button>
+          </form>
+        )}
+
+        {ongletAuth === 'suivi' && (
+          <div className="mt-4 flex flex-col gap-4">
+            <form onSubmit={chercherSuivi} className="flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm">
+              <p className="m-0 text-sm text-muted">
+                Commandé sans compte ? Retrouvez le statut en temps réel avec votre numéro de commande et votre téléphone.
+              </p>
+              <label className="text-sm font-bold">
+                N° de commande
+                <input type="text" required value={suiviRef} onChange={(e) => setSuiviRef(e.target.value.toUpperCase())} placeholder="Ex. TEST01" className={champ} />
+              </label>
+              <label className="text-sm font-bold">
+                Numéro de téléphone utilisé
+                <input type="tel" required value={suiviTel} onChange={(e) => setSuiviTel(e.target.value)} placeholder="22 111 222" className={champ} />
+              </label>
+              <button
+                type="submit"
+                disabled={envoi}
+                className="mt-1 h-12 rounded-2xl bg-ink text-base font-extrabold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {envoi ? 'Recherche…' : 'Suivre ma commande'}
+              </button>
+            </form>
+            {cmdSuivi && <CarteCommande c={cmdSuivi} />}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const enCours = commandes.filter((c) => c.statut !== 'livree' && c.statut !== 'annulee');
+  const terminees = commandes.filter((c) => c.statut === 'livree' || c.statut === 'annulee');
+
+  return (
+    <div className="mx-auto max-w-2xl py-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-white p-5 shadow-sm">
+        <div className="min-w-0">
+          <p className="m-0 text-xs font-bold uppercase tracking-wide text-primary">
+            {user.role === 'admin' ? 'Administrateur' : user.role === 'livreur' ? 'Livreur' : 'Espace client'}
+          </p>
+          <h1 className="m-0 truncate text-xl font-extrabold text-ink">{user.nom || user.email}</h1>
+          <p className="m-0 truncate text-xs text-muted">{user.email}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {(user.role === 'admin' || user.role === 'livreur') && (
+            <Link href="/admin" className="flex h-10 items-center rounded-xl bg-ink px-4 text-xs font-extrabold text-white hover:opacity-90">
+              Ouvrir Admin →
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={deconnexion}
+            className="h-10 rounded-xl border border-black/10 px-3.5 text-xs font-bold text-ink hover:bg-black/5"
+          >
+            Déconnexion
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-1.5 rounded-2xl bg-black/5 p-1">
+        <button
+          type="button"
+          onClick={() => setOngletCompte('commandes')}
+          className={`h-11 rounded-xl text-sm font-extrabold ${ongletCompte === 'commandes' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
+        >
+          Mes commandes ({commandes.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setOngletCompte('profil')}
+          className={`h-11 rounded-xl text-sm font-extrabold ${ongletCompte === 'profil' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
+        >
+          Mon profil
+        </button>
+      </div>
+
+      {erreur && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{erreur}</p>}
+      {msg && <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{msg}</p>}
+
+      {ongletCompte === 'commandes' && (
+        <div className="mt-4 flex flex-col gap-5">
+          <div className="flex items-center justify-between">
+            <h2 className="m-0 text-base font-extrabold">En cours ({enCours.length})</h2>
+            <button type="button" onClick={chargerCommandes} className="text-xs font-bold text-primary underline">
+              Actualiser
+            </button>
+          </div>
+          {enCours.length ? (
+            <div className="flex flex-col gap-3">
+              {enCours.map((c) => (
+                <CarteCommande key={c.id} c={c} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-3xl bg-white p-6 text-center text-sm text-muted">
+              Aucune commande en cours.{' '}
+              <Link href="/c/restaurants" className="font-bold text-primary underline">
+                Découvrir les restaurants
+              </Link>
+            </div>
+          )}
+
+          {terminees.length > 0 && (
+            <>
+              <h2 className="m-0 text-base font-extrabold">Historique ({terminees.length})</h2>
+              <div className="flex flex-col gap-3">
+                {terminees.map((c) => (
+                  <CarteCommande key={c.id} c={c} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {ongletCompte === 'profil' && (
+        <form onSubmit={sauvegarderProfil} className="mt-4 flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm">
+          <label className="text-sm font-bold">
+            Nom complet
+            <input type="text" required value={nom} onChange={(e) => setNom(e.target.value)} className={champ} />
+          </label>
+          <label className="text-sm font-bold">
+            Téléphone (8 chiffres)
+            <input type="tel" value={tel} onChange={(e) => setTel(e.target.value)} placeholder="22 123 456" className={champ} />
+          </label>
+          <label className="text-sm font-bold">
+            Adresse par défaut
+            <input type="text" value={adresse} onChange={(e) => setAdresse(e.target.value)} placeholder="Votre adresse de livraison" className={champ} />
+          </label>
+          <label className="flex items-start gap-2.5 pt-1 text-xs font-medium text-muted">
+            <input type="checkbox" checked={optIn} onChange={(e) => setOptIn(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
+            <span>Recevoir les offres, promos et notifications par email et WhatsApp.</span>
+          </label>
+          <button
+            type="submit"
+            disabled={envoi}
+            className="mt-2 h-12 rounded-2xl bg-primary text-base font-extrabold text-white hover:opacity-95 disabled:opacity-50"
+          >
+            {envoi ? 'Enregistrement…' : 'Enregistrer mon profil'}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}

@@ -50,7 +50,7 @@ export default async function Categorie({ params }: Params) {
           <T k="← Accueil" />
         </Link>
       </div>
-      <Discovery restos={restos} cuisines={cuisines} promos={(l.promos ?? []).filter((p) => p.actif && !p.code).map(vueClient)} titre={titre(type)} livreur={{ nom: l.nom, slogan: l.slogan, ville: l.ville, service: l.service }} />
+      <Discovery restos={restos} cuisines={cuisines} promos={(l.promos ?? []).filter((p) => p.actif && !p.code).map(vueClient)} titre={titre(type)} typeCommerce={type} livreur={{ nom: l.nom, slogan: l.slogan, ville: l.ville, service: l.service }} />
     </>
   );
 }
