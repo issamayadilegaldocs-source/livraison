@@ -75,9 +75,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <p className="mx-auto mt-4 max-w-xl px-4 text-xs leading-relaxed">
             <T k="© 2026 Hamma · Tous droits réservés. Le contenu, les données et les images de ce site sont protégés. Toute copie, extraction ou utilisation sans autorisation écrite est interdite et expose à des poursuites judiciaires." />
           </p>
-          <p className="mt-2 text-xs">
+          <p className="mt-2 flex items-center justify-center gap-3 text-xs">
             <Link href="/mentions-legales" className="font-semibold underline">
               <T k="Mentions légales et propriété intellectuelle" />
+            </Link>
+            <span aria-hidden>·</span>
+            <Link href="/confidentialite" className="font-semibold underline">
+              Politique de confidentialité
             </Link>
           </p>
         </footer>
