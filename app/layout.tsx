@@ -4,6 +4,7 @@ import { Noto_Sans_Arabic, Plus_Jakarta_Sans } from 'next/font/google';
 import Link from '@/app/components/Lien';
 import { ChoixLangue, LangueProvider, T } from '@/lib/i18n';
 import { getLivreur } from '@/lib/livreur';
+import AutoGpsNotifClient from './components/AutoGpsNotifClient';
 import BandeauHorsLigne from './components/BandeauHorsLigne';
 import BandeauLivreur from './components/BandeauLivreur';
 import BandePromo from './components/BandePromo';
@@ -13,6 +14,7 @@ import BoutonCompte from './components/BoutonCompte';
 import LogoDynamique, { NomSiteDynamique } from './components/LogoDynamique';
 import MasquerEntete from './components/MasquerEntete';
 import NavBasClient from './components/NavBasClient';
+import ReseauxSociaux from './components/ReseauxSociaux';
 import './globals.css';
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-jakarta', display: 'swap' });
@@ -40,6 +42,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="fr" className={`${jakarta.variable} ${arabe.variable}`}>
       <body style={{ '--couleur': l.couleur } as CSSProperties} className="min-h-dvh font-sans antialiased">
         <LangueProvider>
+        <AutoGpsNotifClient />
         <MasquerEntete />
         <BandeauHorsLigne />
         <BandeauInstaller nom={l.nom} />
@@ -53,6 +56,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </span>
             </Link>
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <ReseauxSociaux variante="compact" />
               <BoutonCompte />
               <ChoixLangue />
               <a
@@ -68,6 +72,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <BandePromo livraisonGratuite={l.livraisonGratuite ?? null} promos={(l.promos ?? []).filter((p) => p.actif && !p.code).map(vueClient)} />
         <main className="mx-auto max-w-6xl pb-28 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">{children}</main>
         <footer className="border-t border-black/5 bg-white pt-8 pb-[max(6rem,env(safe-area-inset-bottom))] text-center text-sm text-muted">
+          <div className="mb-5 px-4">
+            <ReseauxSociaux variante="carte" />
+          </div>
           <p className="font-bold text-ink"><NomSiteDynamique nomDefaut={l.nom} /></p>
           <p className="mt-1">
             <T k="Livraison selon la distance · Paiement à la livraison · {ville}" v={{ ville: l.ville }} />

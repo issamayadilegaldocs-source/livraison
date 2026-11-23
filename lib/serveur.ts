@@ -268,14 +268,14 @@ export async function verifierCoupon(req: Request, env: Env, livreur: Livreur): 
  */
 export async function etatLivreur(req: Request, env: Env, livreur: Livreur): Promise<Response> {
   const config = await lireConfigR2(env, livreur);
-  const { service, livraison, fraisService, livraisonGratuite, colis, commission, promos, restosFermes, commandeMin, supplement, annonce, pourboires, majoration, logoUrl, nomSite, parrainage, paiements } = reglages(livreur, config);
+  const { service, livraison, fraisService, livraisonGratuite, colis, commission, promos, restosFermes, commandeMin, supplement, annonce, pourboires, majoration, logoUrl, nomSite, parrainage, paiements, reseaux } = reglages(livreur, config);
   const resto = new URL(req.url).searchParams.get('resto') ?? '';
   // Corrections = prix client : le navigateur ne voit ni les prix du resto ni la majoration build-time.
   const plats = SLUG.test(resto) ? correctionsClient(majoration, resto, config.plats[resto]) : {};
   // Majoration live (uniquement si configurée dans /admin) pour mettre à jour l'affichage des prix sur le menu.
   const majorationResto = config.majoration && SLUG.test(resto) ? (config.majoration.restos?.[resto] ?? config.majoration.tous ?? null) : null;
   const pause = pauseEnCours(config, new Date());
-  return Response.json({ pause, retour: pause ? (config.retour ?? null) : null, service: service ?? null, livraison, fraisService, livraisonGratuite, colis, restosFermes, commandeMin, supplement, annonce, pourboires, promos: promos.filter((p) => !p.code).map(vueClient), plats, logoUrl, nomSite, parrainage, paiements, majorationResto }, { headers: { 'cache-control': 'no-store' } });
+  return Response.json({ pause, retour: pause ? (config.retour ?? null) : null, service: service ?? null, livraison, fraisService, livraisonGratuite, colis, restosFermes, commandeMin, supplement, annonce, pourboires, promos: promos.filter((p) => !p.code).map(vueClient), plats, logoUrl, nomSite, parrainage, paiements, reseaux, majorationResto }, { headers: { 'cache-control': 'no-store' } });
 }
 
 // --- Historique des commandes (Supabase `commandes` ou bucket R2 `BONS`) ------------------------------------

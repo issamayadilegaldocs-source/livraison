@@ -97,6 +97,14 @@ export const ConfigSchema = z.object({
       numeroD17: z.string().trim().max(40).optional(),
     })
     .optional(),
+  // Liens réseaux sociaux du livreur (Facebook, Instagram, TikTok)
+  reseaux: z
+    .object({
+      facebook: z.string().trim().max(300).optional(),
+      instagram: z.string().trim().max(300).optional(),
+      tiktok: z.string().trim().max(300).optional(),
+    })
+    .optional(),
   // restoSlug → platId → correction
   plats: z.record(z.string(), z.record(z.string(), CorrectionSchema)).default({}),
 });
@@ -119,7 +127,7 @@ export function pauseEnCours(c: Pick<Config, 'pause' | 'retour'>, maintenant: Da
 }
 
 /** Horaires et frais en vigueur : ceux du livreur (page de config) sinon ceux de livreur.json. */
-export function reglages(livreur: Livreur, c: Config): { service: Service | undefined; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; commission: Commission | undefined; promos: Promo[]; majoration: Majoration | undefined; logoUrl: string | null; nomSite: string; parrainage: { actif: boolean; montantParrain: number; montantFilleul: number }; paiements: { especes: boolean; flouciD17: boolean; carteTpe: boolean; numeroD17?: string } } {
+export function reglages(livreur: Livreur, c: Config): { service: Service | undefined; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; commission: Commission | undefined; promos: Promo[]; majoration: Majoration | undefined; logoUrl: string | null; nomSite: string; parrainage: { actif: boolean; montantParrain: number; montantFilleul: number }; paiements: { especes: boolean; flouciD17: boolean; carteTpe: boolean; numeroD17?: string }; reseaux: { facebook?: string; instagram?: string; tiktok?: string } | null } {
   return {
     service: c.service === undefined ? livreur.service : (c.service ?? undefined),
     livraison: c.frais ? { ...livreur.livraison, ...c.frais } : livreur.livraison,
@@ -138,6 +146,7 @@ export function reglages(livreur: Livreur, c: Config): { service: Service | unde
     nomSite: c.nomSite?.trim() || livreur.nom,
     parrainage: c.parrainage ?? { actif: true, montantParrain: 3, montantFilleul: 3 },
     paiements: c.paiements ?? { especes: true, flouciD17: false, carteTpe: false },
+    reseaux: c.reseaux ?? null,
   };
 }
 

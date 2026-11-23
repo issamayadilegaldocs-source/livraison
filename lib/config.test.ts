@@ -29,13 +29,14 @@ describe('corrigerPlats', () => {
 describe('reglages / lireConfig', () => {
   const l = { ...getLivreur(), service: { ouvre: '11:00', ferme: '23:00' } };
   it('config vide : réglages de livreur.json', () => {
-    expect(reglages(l, lireConfig(null))).toEqual({ restosFermes: [], commandeMin: null, supplement: null, annonce: null, pourboires: [1, 2, 3, 5], fraisService: null, livraisonGratuite: null, colis: { actif: true, livraison: l.livraison, supplements: { petit: 0, moyen: 0, grand: 0 }, urgent: 0, nuit: null }, commission: undefined, majoration: l.majoration, logoUrl: null, nomSite: l.nom, parrainage: { actif: true, montantParrain: 3, montantFilleul: 3 }, paiements: { especes: true, flouciD17: false, carteTpe: false }, promos: [], service: l.service, livraison: l.livraison });
+    expect(reglages(l, lireConfig(null))).toEqual({ restosFermes: [], commandeMin: null, supplement: null, annonce: null, pourboires: [1, 2, 3, 5], fraisService: null, livraisonGratuite: null, colis: { actif: true, livraison: l.livraison, supplements: { petit: 0, moyen: 0, grand: 0 }, urgent: 0, nuit: null }, commission: undefined, majoration: l.majoration, logoUrl: null, nomSite: l.nom, parrainage: { actif: true, montantParrain: 3, montantFilleul: 3 }, paiements: { especes: true, flouciD17: false, carteTpe: false }, reseaux: null, promos: [], service: l.service, livraison: l.livraison });
   });
-  it('config avec majoration, logoUrl et nomSite : pris en compte en direct', () => {
-    const r = reglages(l, lireConfig({ majoration: { tous: { pourcent: 10 } }, logoUrl: 'https://example.com/logo.png', nomSite: 'Mon Service Express' }));
+  it('config avec majoration, logoUrl, nomSite et reseaux : pris en compte en direct', () => {
+    const r = reglages(l, lireConfig({ majoration: { tous: { pourcent: 10 } }, logoUrl: 'https://example.com/logo.png', nomSite: 'Mon Service Express', reseaux: { instagram: 'https://instagram.com/ahmed', facebook: 'https://facebook.com/ahmed' } }));
     expect(r.majoration).toEqual({ tous: { pourcent: 10 } });
     expect(r.logoUrl).toBe('https://example.com/logo.png');
     expect(r.nomSite).toBe('Mon Service Express');
+    expect(r.reseaux).toEqual({ instagram: 'https://instagram.com/ahmed', facebook: 'https://facebook.com/ahmed' });
   });
   it('null = plus d’horaires ; frais du livreur fusionnés (facteurRoute gardé)', () => {
     const r = reglages(l, lireConfig({ service: null, frais: { base: 1, parKm: 0.5, min: 1, max: 12, rayonMaxKm: 15 } }));

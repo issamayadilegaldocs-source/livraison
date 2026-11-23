@@ -11,6 +11,7 @@ import type { FraisService } from '@/lib/frais-service';
 import type { LivraisonGratuite } from '@/lib/livraison-gratuite';
 import type { ConfLivraison, Point } from '@/lib/livraison';
 import Img from '../../components/Img';
+import { ecrirePanierActif } from '@/lib/app-client';
 import Panier, { type LignePanier, type ReglesClient } from './Panier';
 import PlatModal from './PlatModal';
 
@@ -118,11 +119,31 @@ export default function Menu({ slug, nomResto, ouvert, libelle, messageFerme, ca
   }, [visibles]);
 
   const platOuvert = plats.find((p) => p.id === ouvertId) ?? null;
+  const nbArticles = panier.reduce((s, l) => s + l.qte, 0);
   const sousTotal =
     panier.reduce((s, l) => {
       const p = plats.find((x) => x.id === l.platId);
       return p ? s + Math.round(prixUnitaire(p, l.choix) * 1000) * l.qte : s;
     }, 0) / 1000;
+
+  // Synchronise le badge Panier dans la barre basse (Accueil · Favoris · Panier · Commandes · Profil)
+  useEffect(() => {
+    if (nbArticles > 0) {
+      const hrefBase =
+        typeof window !== 'undefined' && window.location.pathname.startsWith('/resto-live')
+          ? `/resto-live?slug=${encodeURIComponent(slug)}`
+          : `/resto/${slug}`;
+      ecrirePanierActif({ slug, nomResto, nbArticles, sousTotal, href: hrefBase });
+    } else {
+      // Ne vide le panier actif global que si c'est ce restaurant qui était actif
+      try {
+        const cur = JSON.parse(localStorage.getItem('app_panier_actif_v1') ?? 'null');
+        if (cur?.slug === slug) ecrirePanierActif(null);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [slug, nomResto, nbArticles, sousTotal]);
 
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_380px]">
@@ -261,7 +282,7 @@ export default function Menu({ slug, nomResto, ouvert, libelle, messageFerme, ca
         <p
           key={ajoute.n}
           role="status"
-          className="pointer-events-none fixed inset-x-0 bottom-[calc(max(1rem,env(safe-area-inset-bottom))+4.25rem)] z-40 mx-auto w-max max-w-[calc(100vw-2rem)] truncate rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-white shadow-lg lg:bottom-6"
+          className="pointer-events-none fixed inset-x-0 bottom-[calc(max(1rem,env(safe-area-inset-bottom))+8.2rem)] z-50 mx-auto w-max max-w-[calc(100vw-2rem)] truncate rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-white shadow-lg lg:bottom-24"
         >
           ✓ {t('Ajouté au panier :')} {ajoute.qte > 1 ? `${ajoute.qte} × ` : ''}{ajoute.nom}
         </p>

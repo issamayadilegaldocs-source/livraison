@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from '@/app/components/Lien';
 import ChatCommandeBox from '@/app/components/ChatCommandeBox';
+import ReseauxSociaux from '@/app/components/ReseauxSociaux';
 import ParrainagePanel from './ParrainagePanel';
 import SupportPanel from './SupportPanel';
 import {
@@ -743,31 +744,107 @@ export default function PageCompte() {
 
   const enCours = commandes.filter((c) => c.statut !== 'livree' && c.statut !== 'annulee');
   const terminees = commandes.filter((c) => c.statut === 'livree' || c.statut === 'annulee');
+  const initiales = (user.nom || user.email || 'CL')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('') || 'CL';
 
   return (
     <div className="mx-auto max-w-2xl py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-white p-5 shadow-sm">
-        <div className="min-w-0">
-          <p className="m-0 text-xs font-bold uppercase tracking-wide text-primary">
-            {user.role === 'admin' ? 'Administrateur' : user.role === 'livreur' ? 'Livreur' : 'Espace client'}
-          </p>
-          <h1 className="m-0 truncate text-xl font-extrabold text-ink">{user.nom || user.email}</h1>
-          <p className="m-0 truncate text-xs text-muted">{user.email}</p>
+      <div className="rounded-3xl bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-ink text-lg font-extrabold text-white">
+              {initiales}
+            </div>
+            <div className="min-w-0">
+              <h1 className="m-0 truncate text-xl font-extrabold text-ink">{user.nom || user.email}</h1>
+              <p className="m-0 truncate text-xs text-muted">{user.email}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {(user.role === 'admin' || user.role === 'livreur') && (
+              <Link href="/admin" className="flex h-10 items-center rounded-xl bg-ink px-4 text-xs font-extrabold text-white hover:opacity-90">
+                Ouvrir Admin →
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={deconnexion}
+              className="h-10 rounded-xl border border-black/10 px-3.5 text-xs font-bold text-ink hover:bg-black/5"
+            >
+              Déconnexion
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {(user.role === 'admin' || user.role === 'livreur') && (
-            <Link href="/admin" className="flex h-10 items-center rounded-xl bg-ink px-4 text-xs font-extrabold text-white hover:opacity-90">
-              Ouvrir Admin →
-            </Link>
-          )}
-          <button
-            type="button"
-            onClick={deconnexion}
-            className="h-10 rounded-xl border border-black/10 px-3.5 text-xs font-bold text-ink hover:bg-black/5"
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Link
+            href="/commandes"
+            className="inline-flex items-center gap-2 rounded-full bg-[#f1f3f9] px-3.5 py-1.5 text-xs font-bold text-ink hover:bg-black/10"
           >
-            Déconnexion
-          </button>
+            <span className={`h-2 w-2 rounded-full ${enCours.length > 0 ? 'bg-primary' : 'bg-black/30'}`} />
+            {enCours.length} {enCours.length > 1 ? 'commandes en cours' : 'commande en cours'}
+          </Link>
         </div>
+      </div>
+
+      {/* Liens rapides style application (2x2 cartes blanches arrondies) */}
+      <div className="mt-4 grid grid-cols-2 gap-2.5">
+        <Link
+          href="/commandes"
+          className="flex flex-col items-start gap-2 rounded-3xl border border-black/5 bg-white p-4 shadow-sm transition hover:border-primary/30"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#f1f5ff] text-lg text-primary">🧾</span>
+          <div>
+            <p className="m-0 text-sm font-extrabold text-ink">Historique des commandes</p>
+            <p className="m-0 text-xs text-muted">{commandes.length} commande(s)</p>
+          </div>
+        </Link>
+        <button
+          type="button"
+          onClick={() => setOngletCompte('parrainage')}
+          className={`flex flex-col items-start gap-2 rounded-3xl border p-4 text-left shadow-sm transition ${
+            ongletCompte === 'parrainage' ? 'border-primary bg-primary/5' : 'border-black/5 bg-white hover:border-primary/30'
+          }`}
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#f1f5ff] text-lg text-primary">🎁</span>
+          <div>
+            <p className="m-0 text-sm font-extrabold text-ink">Parrainage &amp; Crédit</p>
+            <p className="m-0 text-xs text-muted">Gagnez du crédit</p>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setOngletCompte('support')}
+          className={`flex flex-col items-start gap-2 rounded-3xl border p-4 text-left shadow-sm transition ${
+            ongletCompte === 'support' ? 'border-primary bg-primary/5' : 'border-black/5 bg-white hover:border-primary/30'
+          }`}
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#f1f5ff] text-lg text-primary">💬</span>
+          <div>
+            <p className="m-0 text-sm font-extrabold text-ink">Support client</p>
+            <p className="m-0 text-xs text-muted">Aide et contact</p>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setOngletCompte('adresses')}
+          className={`flex flex-col items-start gap-2 rounded-3xl border p-4 text-left shadow-sm transition ${
+            ongletCompte === 'adresses' ? 'border-primary bg-primary/5' : 'border-black/5 bg-white hover:border-primary/30'
+          }`}
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#f1f5ff] text-lg text-primary">📍</span>
+          <div>
+            <p className="m-0 text-sm font-extrabold text-ink">Mes adresses</p>
+            <p className="m-0 text-xs text-muted">{adresses.length} enregistrée(s)</p>
+          </div>
+        </button>
+      </div>
+
+      <div className="mt-4">
+        <ReseauxSociaux variante="carte" />
       </div>
 
       <div className="no-scrollbar mt-4 flex gap-1.5 overflow-x-auto rounded-2xl bg-black/5 p-1">

@@ -47,36 +47,70 @@ export default function RestaurantsPanel({
     ajouts: PlatCustom[];
   } | null>(null);
   const [menuStatique, setMenuStatique] = useState<PlatMenu[]>([]);
-  const [nouveauPlat, setNouveauPlat] = useState({ nom: '', prix: '', categorie: 'Spécialités', description: '' });
+  const [nouveauPlat, setNouveauPlat] = useState({ nom: '', prix: '', categorie: 'Spécialités', description: '', image: '' });
   const [envoi, setEnvoi] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingPlat, setUploadingPlat] = useState(false);
   const [msg, setMsg] = useState('');
+
+  async function uploaderImageVersStorage(file: File): Promise<string | null> {
+    const dataUrl = await new Promise<string>((ok, ko) => {
+      const rd = new FileReader();
+      rd.onload = () => ok(String(rd.result ?? ''));
+      rd.onerror = ko;
+      rd.readAsDataURL(file);
+    });
+    const res = await fetch('/api/admin/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ dataUrl, dossier: 'restos' }),
+    });
+    const d = await res.json().catch(() => null);
+    if (!res.ok || !d?.url) {
+      setMsg(d?.erreur ?? 'Upload impossible.');
+      return null;
+    }
+    return d.url as string;
+  }
 
   async function uploaderPhoto(file: File) {
     if (!edite) return;
     setUploading(true);
     setMsg('');
     try {
-      const dataUrl = await new Promise<string>((ok, ko) => {
-        const rd = new FileReader();
-        rd.onload = () => ok(String(rd.result ?? ''));
-        rd.onerror = ko;
-        rd.readAsDataURL(file);
-      });
-      const res = await fetch('/api/admin/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ dataUrl, dossier: 'restos' }),
-      });
-      const d = await res.json().catch(() => null);
-      if (!res.ok || !d?.url) return setMsg(d?.erreur ?? 'Upload impossible.');
-      setEdite((cur) => (cur ? { ...cur, image: d.url } : cur));
+      const url = await uploaderImageVersStorage(file);
+      if (!url) return;
+      setEdite((cur) => (cur ? { ...cur, image: url } : cur));
       setMsg('✓ Photo importée ! Cliquez sur « Enregistrer et publier » pour valider.');
     } catch {
       setMsg('Erreur lors de l’envoi de l’image.');
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function uploaderPhotoPlat(file: File, idxExistant?: number) {
+    setUploadingPlat(true);
+    setMsg('');
+    try {
+      const url = await uploaderImageVersStorage(file);
+      if (!url) return;
+      if (typeof idxExistant === 'number') {
+        setEdite((cur) => {
+          if (!cur) return cur;
+          const next = [...cur.ajouts];
+          next[idxExistant] = { ...next[idxExistant], image: url };
+          return { ...cur, ajouts: next };
+        });
+      } else {
+        setNouveauPlat((cur) => ({ ...cur, image: url }));
+      }
+      setMsg('✓ Photo du plat importée !');
+    } catch {
+      setMsg('Erreur lors de l’envoi de la photo du plat.');
+    } finally {
+      setUploadingPlat(false);
     }
   }
 
@@ -230,11 +264,12 @@ export default function RestaurantsPanel({
           prix,
           categorie: nouveauPlat.categorie.trim() || 'Carte',
           description: nouveauPlat.description.trim() || undefined,
+          image: nouveauPlat.image.trim() || null,
           indispo: false,
         },
       ],
     });
-    setNouveauPlat({ nom: '', prix: '', categorie: nouveauPlat.categorie, description: '' });
+    setNouveauPlat({ nom: '', prix: '', categorie: nouveauPlat.categorie, description: '', image: '' });
   }
 
   async function supprimerGestion(slug: string) {
@@ -339,40 +374,108 @@ export default function RestaurantsPanel({
             </label>
           </div>
 
-          {/* Gestion des plats ajoutés */}
+          {/* Gestion des plats ajoutés (avec photo comme les restos du catalogue) */}
           <div className="mt-4 rounded-2xl bg-[#f6f7fb] p-3.5">
             <h4 className="m-0 text-xs font-extrabold uppercase text-ink">Plats ajoutés ({edite.ajouts.length})</h4>
-            <div className="mt-2 grid gap-2 sm:grid-cols-4">
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
               <input
                 value={nouveauPlat.nom}
                 onChange={(e) => setNouveauPlat({ ...nouveauPlat, nom: e.target.value })}
-                placeholder="Nom du plat"
+                placeholder="Nom du plat *"
                 className="rounded-xl border border-black/10 bg-white px-3 py-2 text-xs"
               />
               <input
                 value={nouveauPlat.prix}
                 onChange={(e) => setNouveauPlat({ ...nouveauPlat, prix: e.target.value })}
-                placeholder="Prix DT (ex. 12.5)"
+                placeholder="Prix DT (ex. 12.5) *"
                 className="rounded-xl border border-black/10 bg-white px-3 py-2 text-xs"
               />
               <input
                 value={nouveauPlat.categorie}
                 onChange={(e) => setNouveauPlat({ ...nouveauPlat, categorie: e.target.value })}
-                placeholder="Catégorie"
+                placeholder="Catégorie (ex. Pizza, Sandwich)"
                 className="rounded-xl border border-black/10 bg-white px-3 py-2 text-xs"
               />
-              <button type="button" onClick={ajouterPlatCustom} className="h-9 rounded-xl bg-ink text-xs font-extrabold text-white">
-                + Ajouter plat
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <input
+                value={nouveauPlat.description}
+                onChange={(e) => setNouveauPlat({ ...nouveauPlat, description: e.target.value })}
+                placeholder="Description courte (ingrédients, optionnel)"
+                className="rounded-xl border border-black/10 bg-white px-3 py-2 text-xs"
+              />
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={nouveauPlat.image}
+                  onChange={(e) => setNouveauPlat({ ...nouveauPlat, image: e.target.value })}
+                  placeholder="Lien photo du plat ou importer →"
+                  className="min-w-0 flex-1 rounded-xl border border-black/10 bg-white px-3 py-2 text-xs"
+                />
+                <label className="inline-flex h-9 shrink-0 cursor-pointer items-center rounded-xl bg-primary px-3 text-[11px] font-extrabold text-white hover:opacity-90">
+                  <span>{uploadingPlat ? '…' : '📷 Photo'}</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    disabled={uploadingPlat}
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) uploaderPhotoPlat(f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              {nouveauPlat.image ? (
+                <div className="flex items-center gap-2">
+                  <img src={nouveauPlat.image} alt="" className="h-11 w-11 rounded-xl border border-black/10 object-cover" />
+                  <button type="button" onClick={() => setNouveauPlat({ ...nouveauPlat, image: '' })} className="text-[11px] font-bold text-red-700 underline">
+                    Retirer photo
+                  </button>
+                </div>
+              ) : (
+                <span className="text-[11px] text-muted">Ajoutez une photo pour un rendu identique aux autres restaurants.</span>
+              )}
+              <button type="button" onClick={ajouterPlatCustom} className="h-9 rounded-xl bg-ink px-4 text-xs font-extrabold text-white">
+                + Ajouter ce plat
               </button>
             </div>
             {edite.ajouts.length > 0 && (
               <div className="mt-2.5 flex flex-col gap-1.5">
                 {edite.ajouts.map((p, idx) => (
                   <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 text-xs">
-                    <span>
-                      <b>{p.nom}</b> ({p.categorie}) — <b>{p.prix.toFixed(3)} DT</b> {p.indispo ? '· Indispo' : ''}
-                    </span>
-                    <div className="flex gap-1.5">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      {p.image ? (
+                        <img src={p.image} alt="" className="h-11 w-11 shrink-0 rounded-xl border border-black/10 object-cover" />
+                      ) : (
+                        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#f6f7fb] text-base">🍽️</div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="truncate font-extrabold text-ink">
+                          {p.nom} <span className="font-normal text-muted">({p.categorie})</span>
+                        </div>
+                        <div className="text-[11px] font-bold text-primary">
+                          {p.prix.toFixed(3)} DT {p.indispo ? '· Indispo' : ''}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <label className="inline-flex cursor-pointer items-center rounded-lg border border-black/10 bg-[#f6f7fb] px-2 py-1 text-[11px] font-bold text-ink">
+                        <span>📷 {p.image ? 'Changer' : 'Photo'}</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          disabled={uploadingPlat}
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) uploaderPhotoPlat(f, idx);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
                       <button
                         type="button"
                         onClick={() => {

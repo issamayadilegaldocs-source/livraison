@@ -99,3 +99,40 @@ export function supprimerAdresse(id: string): AdresseClient[] {
   if (next.length > 0 && !next.some((a) => a.defaut)) next[0] = { ...next[0], defaut: true };
   return sauvegarderAdresses(next);
 }
+
+export type PanierActif = {
+  slug: string;
+  nomResto: string;
+  nbArticles: number;
+  sousTotal: number;
+  href: string;
+};
+
+const CLE_PANIER_ACTIF = 'app_panier_actif_v1';
+export const EVT_PANIER = 'app:panier';
+export const EVT_OUVRIR_PANIER = 'app:ouvrir-panier';
+
+export function lirePanierActif(): PanierActif | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = JSON.parse(localStorage.getItem(CLE_PANIER_ACTIF) ?? 'null');
+    if (raw && typeof raw.slug === 'string' && Number(raw.nbArticles) > 0) return raw as PanierActif;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function ecrirePanierActif(p: PanierActif | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!p || p.nbArticles <= 0) {
+      localStorage.removeItem(CLE_PANIER_ACTIF);
+    } else {
+      localStorage.setItem(CLE_PANIER_ACTIF, JSON.stringify(p));
+    }
+    window.dispatchEvent(new Event(EVT_PANIER));
+  } catch {
+    /* ignore */
+  }
+}

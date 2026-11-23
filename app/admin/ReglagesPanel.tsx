@@ -32,6 +32,7 @@ type ReglagesApi = {
     nomSite?: string | null;
     parrainage?: { actif: boolean; montantParrain: number; montantFilleul: number };
     paiements?: { especes: boolean; flouciD17: boolean; carteTpe: boolean; numeroD17?: string };
+    reseaux?: { facebook?: string; instagram?: string; tiktok?: string } | null;
   };
   pauseActive: boolean;
 };
@@ -99,10 +100,13 @@ export default function ReglagesPanel({
   const [commResto, setCommResto] = useState('');
   const [commPct, setCommPct] = useState('10');
 
-  // Logo & Nom du site
+  // Logo, Nom du site & Réseaux sociaux
   const [logoUrl, setLogoUrl] = useState('');
   const [nomSite, setNomSite] = useState('');
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [resFb, setResFb] = useState('');
+  const [resIg, setResIg] = useState('');
+  const [resTk, setResTk] = useState('');
 
   // Parrainage & Paiements
   const [parrActif, setParrActif] = useState(true);
@@ -188,6 +192,9 @@ export default function ReglagesPanel({
     });
     setLogoUrl(effectif.logoUrl ?? '');
     setNomSite(effectif.nomSite ?? '');
+    setResFb(effectif.reseaux?.facebook ?? '');
+    setResIg(effectif.reseaux?.instagram ?? '');
+    setResTk(effectif.reseaux?.tiktok ?? '');
     setParrActif(effectif.parrainage?.actif ?? true);
     setParrParrain(String(effectif.parrainage?.montantParrain ?? 3));
     setParrFilleul(String(effectif.parrainage?.montantFilleul ?? 3));
@@ -518,6 +525,63 @@ export default function ReglagesPanel({
               className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
             >
               Enregistrer
+            </button>
+          </section>
+
+          {/* Réseaux sociaux (Instagram, Facebook, TikTok) affichés de façon fluide pour faire suivre les pages */}
+          <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm lg:col-span-2">
+            <h3 className="m-0 text-base font-extrabold">📱 Pages Facebook &amp; Instagram (suivi clients)</h3>
+            <p className="m-0 mt-0.5 text-xs text-muted">
+              Ajoutez vos liens Instagram / Facebook : des boutons « Suivez-nous » fluides apparaissent dans l’en-tête, le pied de page et le profil client.
+            </p>
+            <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
+              <label className="text-xs font-bold">
+                📸 Instagram
+                <input
+                  value={resIg}
+                  onChange={(e) => setResIg(e.target.value)}
+                  placeholder="https://instagram.com/votre_page"
+                  className={inp}
+                />
+              </label>
+              <label className="text-xs font-bold">
+                📘 Facebook
+                <input
+                  value={resFb}
+                  onChange={(e) => setResFb(e.target.value)}
+                  placeholder="https://facebook.com/votre_page"
+                  className={inp}
+                />
+              </label>
+              <label className="text-xs font-bold">
+                🎵 TikTok (optionnel)
+                <input
+                  value={resTk}
+                  onChange={(e) => setResTk(e.target.value)}
+                  placeholder="https://tiktok.com/@votre_compte"
+                  className={inp}
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              disabled={saving === 'reseaux'}
+              onClick={() => {
+                const cleanUrl = (v: string) => {
+                  const t = v.trim();
+                  if (!t) return undefined;
+                  return /^https?:\/\//i.test(t) ? t : `https://${t}`;
+                };
+                const obj = {
+                  ...(cleanUrl(resFb) ? { facebook: cleanUrl(resFb) } : {}),
+                  ...(cleanUrl(resIg) ? { instagram: cleanUrl(resIg) } : {}),
+                  ...(cleanUrl(resTk) ? { tiktok: cleanUrl(resTk) } : {}),
+                };
+                enregistrer('reseaux', { reseaux: Object.keys(obj).length ? obj : undefined }, 'Liens réseaux sociaux');
+              }}
+              className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+            >
+              Enregistrer mes réseaux sociaux
             </button>
           </section>
         </div>

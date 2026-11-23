@@ -194,26 +194,13 @@ export default function PageAdmin() {
     return () => clearInterval(id);
   }, [user, onglet, chargerTracking]);
 
-  useEffect(() => {
-    return () => {
-      if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-    };
-  }, []);
-
-  function basculerGps() {
+  const demarrerGps = useCallback(() => {
     setGpsErreur('');
-    if (gpsActif) {
-      if (watchIdRef.current !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-      setGpsActif(false);
-      return;
-    }
-    if (!navigator.geolocation) {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setGpsErreur('GPS non disponible sur cet appareil.');
       return;
     }
+    if (watchIdRef.current !== null) return;
     setGpsActif(true);
     lastPingRef.current = 0;
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -233,11 +220,44 @@ export default function PageAdmin() {
           .catch(() => {});
       },
       () => {
-        setGpsErreur('Autorisez la localisation GPS dans le navigateur.');
+        setGpsErreur('Autorisez la localisation GPS dans votre navigateur pour activer le suivi temps réel.');
         setGpsActif(false);
+        watchIdRef.current = null;
       },
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
     );
+  }, [user?.role, onglet, chargerTracking]);
+
+  // GPS et notifications activés par défaut dès la connexion (Admin et tous les sous-livreurs)
+  useEffect(() => {
+    if (!user) return;
+    demarrerGps();
+    const activerAudioEtNotif = () => {
+      activerAlertesNavigateur().catch(() => {});
+    };
+    window.addEventListener('pointerdown', activerAudioEtNotif, { once: true, passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', activerAudioEtNotif);
+    };
+  }, [user, demarrerGps]);
+
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
+
+  function basculerGps() {
+    setGpsErreur('');
+    if (gpsActif) {
+      if (watchIdRef.current !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+      setGpsActif(false);
+      return;
+    }
+    demarrerGps();
   }
 
   async function informerResto(c: CommandeSuivi, canal: 'whatsapp' | 'email') {

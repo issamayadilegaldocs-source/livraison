@@ -16,6 +16,7 @@ import { calculerLivraison, departCarte, positionPrecise, type ConfLivraison, ty
 import { estIOS, estMobile, lienChrome, navigateurIntegreAndroid } from '@/lib/navigateur';
 import { erreurAdresse, erreurNom, erreurTelephone } from '@/lib/validation';
 import { prixUnitaire, resumeChoix, type Choix } from '@/lib/options';
+import { EVT_OUVRIR_PANIER } from '@/lib/app-client';
 import type { PlatVue } from './Menu';
 
 // Leaflet touche à `window` : chargé uniquement dans le navigateur.
@@ -136,6 +137,25 @@ export default function Panier({ slug, nomResto, ouvert, libelle, messageFerme, 
         if (u.adresse) setAdresse((v) => v || u.adresse);
       })
       .catch(() => {});
+
+    // Pré-charge automatiquement la position GPS client si déjà partagée par défaut
+    try {
+      const gps = JSON.parse(sessionStorage.getItem('app_gps_client') ?? 'null');
+      if (gps && typeof gps.lat === 'number' && typeof gps.lng === 'number') {
+        setPosition((cur) => cur ?? { lat: gps.lat, lng: gps.lng, label: 'Ma position GPS' });
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Ouverture immédiate du panier via ?panier=1 ou clic sur l'onglet Panier en bas
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('panier') === '1') {
+      setEtape('panier');
+    }
+    const onOuvrir = () => setEtape('panier');
+    window.addEventListener(EVT_OUVRIR_PANIER, onOuvrir);
+    return () => window.removeEventListener(EVT_OUVRIR_PANIER, onOuvrir);
   }, [slug]);
 
   // Retour du téléphone : remonte d'une étape, sans quitter la page.
@@ -421,10 +441,13 @@ export default function Panier({ slug, nomResto, ouvert, libelle, messageFerme, 
         <button
           type="button"
           onClick={() => setEtape('panier')}
-          className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 flex items-center justify-between rounded-full bg-primary px-5 py-3.5 font-bold text-white shadow-lg lg:hidden"
+          className="fixed inset-x-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[45] mx-auto flex max-w-lg items-center justify-between rounded-2xl bg-primary px-5 py-3.5 text-sm font-extrabold text-white shadow-[0_8px_24px_rgba(26,107,224,0.35)] transition active:scale-[0.98] lg:hidden"
         >
-          <span>{t('Voir le panier ({n})', { n: nbArticles })}</span>
-          <span>{formaterPrix(sousTotal)}</span>
+          <span className="flex items-center gap-2">
+            <span className="grid h-6 min-w-6 place-items-center rounded-full bg-saffron px-1.5 text-xs font-extrabold text-ink">{nbArticles}</span>
+            <span>{t('Voir le panier ({n})', { n: nbArticles })}</span>
+          </span>
+          <span>{formaterPrix(sousTotal)} →</span>
         </button>
       )}
 
