@@ -374,6 +374,12 @@ export async function pagePush(req: Request, env: Env, livreur: Livreur): Promis
   }
 
   const page = `/api/push?cle=${encodeURIComponent(cle)}`;
+  if (url.searchParams.get('json') === '1') {
+    return Response.json(
+      { pub: env.VAPID_JWK ? cleVapidPublique(env.VAPID_JWK) : null },
+      { headers: { 'cache-control': 'no-store' } },
+    );
+  }
   if (url.searchParams.get('manifest') === '1')
     return Response.json(
       { name: `${cibleNom} — alertes commandes`, short_name: 'Alertes', start_url: page, scope: '/api/push', display: 'standalone', background_color: '#f6f7fb', theme_color: livreur.couleur, icons: [{ src: '/icone-alertes.png', sizes: '512x512', type: 'image/png' }] },

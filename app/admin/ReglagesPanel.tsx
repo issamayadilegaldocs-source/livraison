@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { Promo } from '@/lib/commission';
 import type { Config, Majoration, Regle } from '@/lib/config';
+import { activerPushDirect } from './admin-utils';
 
 type ReglagesApi = {
   config: Config;
@@ -315,13 +316,20 @@ export default function ReglagesPanel({
             <span>2. Ma marge sur les plats</span>
             <span>{majType !== 'aucune' ? '✅' : '→'}</span>
           </button>
-          <a
-            href="/api/push"
+          <button
+            type="button"
+            onClick={async () => {
+              setMsg('');
+              setErr('');
+              const r = await activerPushDirect(false);
+              if (r.ok) setMsg(r.message);
+              else setErr(r.message);
+            }}
             className="flex items-center justify-between rounded-2xl bg-amber-400 px-3.5 py-2.5 text-left text-xs font-extrabold text-ink hover:opacity-95"
           >
-            <span>3. Activer alertes téléphone</span>
+            <span>3. Activer alertes directement</span>
             <span>🔔</span>
-          </a>
+          </button>
         </div>
       </div>
 

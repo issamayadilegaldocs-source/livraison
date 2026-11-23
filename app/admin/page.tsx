@@ -15,6 +15,7 @@ import ChatCommandeBox from '@/app/components/ChatCommandeBox';
 import type { PointTracking } from './CarteTracking';
 import {
   activerAlertesNavigateur,
+  activerPushDirect,
   declencherAlerte,
   distanceEnKm,
   formaterDistance,
@@ -22,6 +23,7 @@ import {
   prochaineEtape,
   type RestoInfoIndex,
 } from './admin-utils';
+import { invaliderCache } from '@/lib/cache-client';
 
 const CarteTracking = dynamic(() => import('./CarteTracking'), { ssr: false });
 
@@ -228,12 +230,28 @@ export default function PageAdmin() {
     );
   }, [user?.role, onglet, chargerTracking]);
 
-  // GPS et notifications activés par défaut dès la connexion (Admin et tous les sous-livreurs)
+  const [pushActif, setPushActif] = useState(false);
+
+  async function activerAlertesEnPlace() {
+    const r = await activerPushDirect(false);
+    if (r.pushActif) setPushActif(true);
+    setSonActif(true);
+    setNotifBanner({ texte: r.ok ? `✓ ${r.message}` : `⚠️ ${r.message}` });
+    if (r.ok) declencherAlerte('🔔 Alertes activées', 'Vous recevrez chaque commande en direct.');
+  }
+
+  // GPS et notifications (Push + Son) activés automatiquement par défaut dès la connexion (Admin et sous-livreurs)
   useEffect(() => {
     if (!user) return;
     demarrerGps();
+    activerPushDirect(true).then((r) => {
+      if (r.pushActif) setPushActif(true);
+    });
     const activerAudioEtNotif = () => {
       activerAlertesNavigateur().catch(() => {});
+      activerPushDirect(false).then((r) => {
+        if (r.pushActif) setPushActif(true);
+      });
     };
     window.addEventListener('pointerdown', activerAudioEtNotif, { once: true, passive: true });
     return () => {
@@ -473,6 +491,7 @@ export default function PageAdmin() {
       const d = await res.json().catch(() => null);
       if (!res.ok) return d?.erreur ?? `Erreur (${res.status})`;
       setReglages(d as ReglagesApi);
+      invaliderCache('/api/etat');
       return null;
     } catch {
       return 'Erreur réseau.';
@@ -739,9 +758,13 @@ export default function PageAdmin() {
               Part à remettre à l’Admin : {fmtPrix(stats?.aRendreAdmin ?? 0)}
             </p>
           </div>
-          <a href="/api/push" className="inline-flex h-10 items-center rounded-xl bg-amber-500 px-4 text-xs font-extrabold text-white">
-            🔔 Activer mes alertes Push
-          </a>
+          <button
+            type="button"
+            onClick={activerAlertesEnPlace}
+            className={`inline-flex h-10 items-center rounded-xl px-4 text-xs font-extrabold text-white ${pushActif ? 'bg-emerald-600' : 'bg-amber-500'}`}
+          >
+            {pushActif ? '🔔 Alertes actives ✓' : '🔔 Activer mes alertes'}
+          </button>
         </div>
       )}
 
@@ -878,14 +901,19 @@ export default function PageAdmin() {
               </span>
             </button>
 
-            <a
-              href="/api/push"
-              className="flex flex-col items-start gap-2 rounded-3xl border border-amber-300 bg-amber-50 p-4 text-left shadow-sm"
+            <button
+              type="button"
+              onClick={activerAlertesEnPlace}
+              className={`flex flex-col items-start gap-2 rounded-3xl border p-4 text-left shadow-sm ${
+                pushActif ? 'border-emerald-400 bg-emerald-50' : 'border-amber-300 bg-amber-50'
+              }`}
             >
               <span className="text-2xl">🔔</span>
               <span className="text-sm font-extrabold text-ink">Alertes téléphone</span>
-              <span className="rounded-full bg-amber-500 px-2.5 py-0.5 text-[11px] font-extrabold text-white">Activer Push</span>
-            </a>
+              <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold text-white ${pushActif ? 'bg-emerald-600' : 'bg-amber-500'}`}>
+                {pushActif ? 'Actives ✓' : 'Activer'}
+              </span>
+            </button>
           </div>
 
           {user.role === 'admin' && (

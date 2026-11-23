@@ -25,5 +25,6 @@ self.addEventListener('push', (e) => {
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const cle = new URL(self.location.href).searchParams.get('cle') || '';
-  e.waitUntil(self.clients.openWindow('/api/config?cle=' + encodeURIComponent(cle) + '#commandes'));
+  const cible = cle ? '/api/config?cle=' + encodeURIComponent(cle) + '#commandes' : '/admin';
+  e.waitUntil(self.clients.openWindow(cible));
 });

@@ -14,6 +14,7 @@ import {
   supprimerAdresse,
   type AdresseClient,
 } from '@/lib/app-client';
+import { invaliderCache } from '@/lib/cache-client';
 import { CLE_CLIENT } from '@/lib/client';
 
 const CarteTracking = dynamic(() => import('@/app/admin/CarteTracking'), { ssr: false });
@@ -332,12 +333,10 @@ export default function PageCompte() {
   const [adresse, setAdresse] = useState('');
   const [optIn, setOptIn] = useState(true);
 
-  // Suivi invité & OAuth rapide
+  // Suivi invité
   const [suiviRef, setSuiviRef] = useState('');
   const [suiviTel, setSuiviTel] = useState('');
   const [cmdSuivi, setCmdSuivi] = useState<Commande | null>(null);
-  const [googleActif, setGoogleActif] = useState(false);
-  const [magicEmail, setMagicEmail] = useState('');
 
   const chargerCommandes = useCallback(async () => {
     const res = await fetch('/api/compte/commandes', { credentials: 'same-origin' });
@@ -356,15 +355,7 @@ export default function PageCompte() {
       setOngletAuth('suivi');
     }
 
-    // Détecter si Google OAuth est activé côté Supabase
-    fetch('/api/auth/providers')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d) setGoogleActif(Boolean(d.google));
-      })
-      .catch(() => {});
-
-    // Finaliser un retour OAuth Google ou Lien Magique (#access_token=...)
+    // Finaliser un retour OAuth Google (#access_token=...)
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const accessToken = hashParams.get('access_token');
     const init = accessToken
@@ -376,6 +367,8 @@ export default function PageCompte() {
         })
           .then((r) => (r.ok ? r.json() : { user: null }))
           .finally(() => {
+            invaliderCache('/api/auth/me');
+            invaliderCache('/api/compte/');
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
           })
       : fetch('/api/auth/me', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { user: null }));
@@ -454,30 +447,6 @@ export default function PageCompte() {
     }
   }
 
-  async function inscription(e: React.FormEvent) {
-    e.preventDefault();
-    setErreur('');
-    setMsg('');
-    setEnvoi(true);
-    try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ email, password, nom, telephone: tel, adresse, marketing_opt_in: optIn }),
-      });
-      const d = await res.json();
-      if (!res.ok) return setErreur(d.erreur ?? 'Inscription échouée.');
-      setUser(d.user);
-      setMsg('Compte créé avec succès !');
-      chargerCommandes();
-    } catch {
-      setErreur('Erreur réseau.');
-    } finally {
-      setEnvoi(false);
-    }
-  }
-
   async function sauvegarderProfil(e: React.FormEvent) {
     e.preventDefault();
     setErreur('');
@@ -493,6 +462,7 @@ export default function PageCompte() {
       const d = await res.json();
       if (!res.ok) return setErreur(d.erreur ?? 'Mise à jour impossible.');
       setUser(d.profile);
+      invaliderCache('/api/auth/me');
       try {
         const prev = JSON.parse(localStorage.getItem(CLE_CLIENT) ?? '{}');
         localStorage.setItem(CLE_CLIENT, JSON.stringify({ ...prev, nom: d.profile.nom, tel: tel || prev.tel || '', email: d.profile.email, adresse: d.profile.adresse ?? prev.adresse ?? '' }));
@@ -509,33 +479,11 @@ export default function PageCompte() {
 
   async function deconnexion() {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    invaliderCache();
     setUser(null);
     setCommandes([]);
     setPassword('');
     window.location.reload();
-  }
-
-  async function envoyerLienMagique(e: React.FormEvent) {
-    e.preventDefault();
-    if (!magicEmail.trim()) return;
-    setErreur('');
-    setMsg('');
-    setEnvoi(true);
-    try {
-      const res = await fetch('/api/auth/magic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: magicEmail.trim() }),
-      });
-      const d = await res.json().catch(() => null);
-      if (!res.ok) return setErreur(d?.erreur ?? 'Envoi impossible.');
-      setMsg(d?.message ?? 'Lien de connexion envoyé par email !');
-      setMagicEmail('');
-    } catch {
-      setErreur('Erreur réseau.');
-    } finally {
-      setEnvoi(false);
-    }
   }
 
   async function chercherSuivi(e: React.FormEvent) {
@@ -567,16 +515,15 @@ export default function PageCompte() {
     return (
       <div className="mx-auto max-w-lg py-6">
         <div className="mb-4 flex items-center justify-between">
-          <h1 className="m-0 text-2xl font-extrabold tracking-tight">Mon compte & Suivi</h1>
+          <h1 className="m-0 text-2xl font-extrabold tracking-tight">Mon compte</h1>
           <Link href="/" className="text-sm font-bold text-primary underline">
             ← Accueil
           </Link>
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5 rounded-2xl bg-black/5 p-1">
+        <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-black/5 p-1">
           {([
-            ['login', 'Connexion'],
-            ['register', 'Inscription'],
+            ['login', 'Connexion Google'],
             ['suivi', 'Suivi invité'],
           ] as const).map(([cle, label]) => (
             <button
@@ -599,118 +546,52 @@ export default function PageCompte() {
         {erreur && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{erreur}</p>}
         {msg && <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{msg}</p>}
 
-        {(ongletAuth === 'login' || ongletAuth === 'register') && (
-          <div className="mt-4 flex flex-col gap-3 rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
-            <p className="m-0 text-xs font-extrabold uppercase tracking-wide text-muted">⚡ Connexion rapide (1 clic)</p>
-            {googleActif ? (
-              <a
-                href="/api/auth/google"
-                className="flex h-12 w-full items-center justify-center gap-2.5 rounded-2xl border border-black/15 bg-white text-sm font-extrabold text-ink shadow-sm transition hover:bg-[#f6f7fb]"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                  <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.54-5.17 3.54-8.87z" />
-                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.12 0-5.77-2.11-6.72-4.96H1.29v3.1A12 12 0 0 0 12 24z" />
-                  <path fill="#FBBC05" d="M5.28 14.28A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.56.38-2.28v-3.1H1.29A12 12 0 0 0 0 12c0 1.94.46 3.77 1.29 5.38l3.99-3.1z" />
-                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.29 6.62l3.99 3.1c.95-2.85 3.6-4.97 6.72-4.97z" />
-                </svg>
-                Continuer avec Google
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setMsg('Astuce : activez Google dans Supabase → Auth → Providers → Google pour activer ce bouton instantanément. En attendant, utilisez le lien magique 1 clic ci-dessous !')}
-                className="flex h-12 w-full items-center justify-center gap-2.5 rounded-2xl border border-black/15 bg-white text-sm font-extrabold text-ink shadow-sm hover:bg-[#f6f7fb]"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                  <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.54-5.17 3.54-8.87z" />
-                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.12 0-5.77-2.11-6.72-4.96H1.29v3.1A12 12 0 0 0 12 24z" />
-                  <path fill="#FBBC05" d="M5.28 14.28A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.56.38-2.28v-3.1H1.29A12 12 0 0 0 0 12c0 1.94.46 3.77 1.29 5.38l3.99-3.1z" />
-                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.29 6.62l3.99 3.1c.95-2.85 3.6-4.97 6.72-4.97z" />
-                </svg>
-                Continuer avec Google
-              </button>
-            )}
+        {ongletAuth !== 'suivi' && (
+          <div className="mt-4 flex flex-col gap-4 rounded-3xl border border-black/5 bg-white p-6 text-center shadow-sm">
+            <div>
+              <p className="m-0 text-3xl">👋</p>
+              <h2 className="m-0 mt-2 text-lg font-extrabold text-ink">Accédez à votre compte en 1 seconde</h2>
+              <p className="m-0 mt-1 text-xs text-muted">
+                Si votre compte existe déjà, vous êtes connecté directement ; sinon il est créé automatiquement avec Google.
+              </p>
+            </div>
 
-            <form onSubmit={envoyerLienMagique} className="flex gap-1.5">
-              <input
-                type="email"
-                required
-                value={magicEmail}
-                onChange={(e) => setMagicEmail(e.target.value)}
-                placeholder="Votre email → lien 1 clic sans mot de passe"
-                className="h-11 flex-1 rounded-xl border border-black/10 bg-[#f6f7fb] px-3 text-xs font-semibold outline-none focus:border-primary sm:text-sm"
-              />
-              <button
-                type="submit"
-                disabled={envoi}
-                className="h-11 shrink-0 rounded-xl bg-ink px-3.5 text-xs font-extrabold text-white disabled:opacity-50"
-              >
-                ⚡ 1 clic
-              </button>
-            </form>
+            <a
+              href="/api/auth/google"
+              className="flex h-13 w-full items-center justify-center gap-3 rounded-2xl border border-black/15 bg-white py-3.5 text-sm font-extrabold text-ink shadow-sm transition hover:bg-[#f6f7fb] active:scale-[0.99]"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.54-5.17 3.54-8.87z" />
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.12 0-5.77-2.11-6.72-4.96H1.29v3.1A12 12 0 0 0 12 24z" />
+                <path fill="#FBBC05" d="M5.28 14.28A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.56.38-2.28v-3.1H1.29A12 12 0 0 0 0 12c0 1.94.46 3.77 1.29 5.38l3.99-3.1z" />
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.29 6.62l3.99 3.1c.95-2.85 3.6-4.97 6.72-4.97z" />
+              </svg>
+              Continuer avec Google
+            </a>
+
+            <details className="pt-1 text-left">
+              <summary className="cursor-pointer text-center text-xs font-bold text-muted hover:text-ink">
+                Accès Admin / Livreur (email &amp; mot de passe)
+              </summary>
+              <form onSubmit={connexion} className="mt-3 flex flex-col gap-2.5 border-t border-black/5 pt-3">
+                <label className="text-xs font-bold">
+                  Email
+                  <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vous@exemple.com" className={champ} />
+                </label>
+                <label className="text-xs font-bold">
+                  Mot de passe
+                  <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={champ} />
+                </label>
+                <button
+                  type="submit"
+                  disabled={envoi}
+                  className="mt-1 h-11 rounded-2xl bg-ink text-sm font-extrabold text-white hover:opacity-95 disabled:opacity-50"
+                >
+                  {envoi ? 'Connexion…' : 'Se connecter'}
+                </button>
+              </form>
+            </details>
           </div>
-        )}
-
-        {ongletAuth === 'login' && (
-          <form onSubmit={connexion} className="mt-4 flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm">
-            <label className="text-sm font-bold">
-              Email
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vous@exemple.com" className={champ} />
-            </label>
-            <label className="text-sm font-bold">
-              Mot de passe
-              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={champ} />
-            </label>
-            <button
-              type="submit"
-              disabled={envoi}
-              className="mt-2 h-12 rounded-2xl bg-primary text-base font-extrabold text-white hover:opacity-95 disabled:opacity-50"
-            >
-              {envoi ? 'Connexion…' : 'Se connecter'}
-            </button>
-            <p className="mt-1 text-center text-xs text-muted">
-              Pas encore de compte ?{' '}
-              <button type="button" onClick={() => setOngletAuth('register')} className="font-bold text-primary underline">
-                Créer un compte
-              </button>
-            </p>
-          </form>
-        )}
-
-        {ongletAuth === 'register' && (
-          <form onSubmit={inscription} className="mt-4 flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm">
-            <label className="text-sm font-bold">
-              Nom complet
-              <input type="text" required value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex. Sami Ben Ali" className={champ} />
-            </label>
-            <label className="text-sm font-bold">
-              Téléphone (8 chiffres)
-              <input type="tel" required value={tel} onChange={(e) => setTel(e.target.value)} placeholder="22 123 456" className={champ} />
-            </label>
-            <label className="text-sm font-bold">
-              Email
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vous@exemple.com" className={champ} />
-            </label>
-            <label className="text-sm font-bold">
-              Mot de passe (min. 6 caractères)
-              <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={champ} />
-            </label>
-            <label className="text-sm font-bold">
-              Adresse habituelle (facultatif)
-              <input type="text" value={adresse} onChange={(e) => setAdresse(e.target.value)} placeholder="Ex. Route Gremda km 3, Sfax" className={champ} />
-            </label>
-            <label className="flex items-start gap-2.5 pt-1 text-xs font-medium text-muted">
-              <input type="checkbox" checked={optIn} onChange={(e) => setOptIn(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
-              <span>Recevoir le suivi de mes commandes et les offres spéciales par email et WhatsApp.</span>
-            </label>
-            <button
-              type="submit"
-              disabled={envoi}
-              className="mt-2 h-12 rounded-2xl bg-primary text-base font-extrabold text-white hover:opacity-95 disabled:opacity-50"
-            >
-              {envoi ? 'Création…' : 'Créer mon compte'}
-            </button>
-          </form>
         )}
 
         {ongletAuth === 'suivi' && (

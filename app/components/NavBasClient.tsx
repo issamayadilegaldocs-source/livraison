@@ -11,6 +11,7 @@ import {
   lirePanierActif,
   type PanierActif,
 } from '@/lib/app-client';
+import { fetchCache } from '@/lib/cache-client';
 
 function Icone({ nom, actif }: { nom: 'home' | 'fav' | 'cart' | 'orders' | 'profile'; actif: boolean }) {
   const sw = actif ? 2.3 : 1.85;
@@ -93,16 +94,18 @@ export default function NavBasClient() {
 
   useEffect(() => {
     if (pathname.startsWith('/admin')) return;
-    fetch('/api/compte/commandes', { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!d?.commandes) return;
-        const actives = (d.commandes as { statut: string }[]).filter(
-          (c) => c.statut !== 'livree' && c.statut !== 'annulee',
-        ).length;
+    let actif = true;
+    fetchCache<{ user?: unknown }>('/api/auth/me', { ttlMs: 180_000 }).then((auth) => {
+      if (!actif || !auth?.user) return;
+      fetchCache<{ commandes?: { statut: string }[] }>('/api/compte/commandes', { ttlMs: 30_000 }).then((d) => {
+        if (!actif || !d?.commandes) return;
+        const actives = d.commandes.filter((c) => c.statut !== 'livree' && c.statut !== 'annulee').length;
         setNbCmdsActives(actives);
-      })
-      .catch(() => {});
+      });
+    });
+    return () => {
+      actif = false;
+    };
   }, [pathname]);
 
   if (pathname.startsWith('/admin')) return null;

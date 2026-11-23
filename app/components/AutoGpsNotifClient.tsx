@@ -11,6 +11,10 @@ export default function AutoGpsNotifClient() {
   const pathname = usePathname() ?? '/';
 
   useEffect(() => {
+    // Enregistre le Service Worker de mise en cache rapide des images, menus et assets statiques
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw-app.js').catch(() => {});
+    }
     if (pathname.startsWith('/admin')) return;
 
     // 1. GPS client activé par défaut dès l'ouverture (si pas déjà capturé dans cette session)

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from '@/app/components/Lien';
+import { fetchCache, lireCacheSync } from '@/lib/cache-client';
 
 type UserMini = {
   id: string;
@@ -11,16 +12,15 @@ type UserMini = {
 };
 
 export default function BoutonCompte() {
-  const [user, setUser] = useState<UserMini | null>(null);
+  const [user, setUser] = useState<UserMini | null>(
+    () => lireCacheSync<{ user?: UserMini | null }>('/api/auth/me', 180_000)?.user ?? null,
+  );
 
   useEffect(() => {
     let actif = true;
-    fetch('/api/auth/me', { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (actif && d?.user) setUser(d.user);
-      })
-      .catch(() => {});
+    fetchCache<{ user?: UserMini | null }>('/api/auth/me', { ttlMs: 180_000 }).then((d) => {
+      if (actif && d) setUser(d.user ?? null);
+    });
     return () => {
       actif = false;
     };

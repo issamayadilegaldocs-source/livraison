@@ -112,3 +112,65 @@ export function declencherAlerte(titre: string, corps: string) {
     /* ignore */
   }
 }
+
+function base64UrlVersUint8(b64: string): Uint8Array {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+/**
+ * Active directement les alertes sonores + notifications navigateur + Push téléphone
+ * SANS rediriger vers une autre page. Peut tourner automatiquement par défaut.
+ */
+export async function activerPushDirect(silencieux = false): Promise<{ ok: boolean; pushActif: boolean; message: string }> {
+  if (!silencieux) {
+    await activerAlertesNavigateur();
+  }
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+    return { ok: true, pushActif: false, message: 'Alertes sonores actives.' };
+  }
+  let perm = Notification.permission;
+  if (perm === 'default' && !silencieux) {
+    perm = await Notification.requestPermission().catch(() => 'default' as NotificationPermission);
+  }
+  if (perm !== 'granted') {
+    return {
+      ok: false,
+      pushActif: false,
+      message: perm === 'denied' ? 'Autorisez les notifications dans les réglages du navigateur.' : 'Cliquez sur « Autoriser » pour activer les alertes.',
+    };
+  }
+
+  try {
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      const rKey = await fetch('/api/push?json=1', { credentials: 'same-origin' }).catch(() => null);
+      const dKey = rKey && rKey.ok ? ((await rKey.json().catch(() => null)) as { pub?: string | null } | null) : null;
+      if (dKey?.pub) {
+        const reg = await navigator.serviceWorker.register('/sw-livreur.js', { scope: '/' });
+        await navigator.serviceWorker.ready;
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: base64UrlVersUint8(dKey.pub) as BufferSource,
+          });
+        }
+        if (sub?.endpoint) {
+          await fetch('/api/push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          }).catch(() => {});
+          return { ok: true, pushActif: true, message: 'Alertes sonores & Push téléphone activées ✓' };
+        }
+      }
+    }
+  } catch {
+    /* repli sur notifications navigateur + son */
+  }
+  return { ok: true, pushActif: true, message: 'Alertes sonores & notifications activées ✓' };
+}
