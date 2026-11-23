@@ -80,6 +80,23 @@ export const ConfigSchema = z.object({
   logoUrl: z.string().trim().max(500).nullable().optional(),
   // absent : livreur.json ; null : nom par défaut ; string : nom affiché du site (en-tête, pied de page, admin).
   nomSite: z.string().trim().min(1).max(60).nullable().optional(),
+  // Programme de parrainage client (code + crédit parrain/filleul)
+  parrainage: z
+    .object({
+      actif: z.boolean().default(true),
+      montantParrain: z.number().min(0).max(50).default(3),
+      montantFilleul: z.number().min(0).max(50).default(3),
+    })
+    .optional(),
+  // Moyens de paiement proposés aux clients
+  paiements: z
+    .object({
+      especes: z.boolean().default(true),
+      flouciD17: z.boolean().default(false),
+      carteTpe: z.boolean().default(false),
+      numeroD17: z.string().trim().max(40).optional(),
+    })
+    .optional(),
   // restoSlug → platId → correction
   plats: z.record(z.string(), z.record(z.string(), CorrectionSchema)).default({}),
 });
@@ -102,7 +119,7 @@ export function pauseEnCours(c: Pick<Config, 'pause' | 'retour'>, maintenant: Da
 }
 
 /** Horaires et frais en vigueur : ceux du livreur (page de config) sinon ceux de livreur.json. */
-export function reglages(livreur: Livreur, c: Config): { service: Service | undefined; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; commission: Commission | undefined; promos: Promo[]; majoration: Majoration | undefined; logoUrl: string | null; nomSite: string } {
+export function reglages(livreur: Livreur, c: Config): { service: Service | undefined; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; commission: Commission | undefined; promos: Promo[]; majoration: Majoration | undefined; logoUrl: string | null; nomSite: string; parrainage: { actif: boolean; montantParrain: number; montantFilleul: number }; paiements: { especes: boolean; flouciD17: boolean; carteTpe: boolean; numeroD17?: string } } {
   return {
     service: c.service === undefined ? livreur.service : (c.service ?? undefined),
     livraison: c.frais ? { ...livreur.livraison, ...c.frais } : livreur.livraison,
@@ -119,6 +136,8 @@ export function reglages(livreur: Livreur, c: Config): { service: Service | unde
     majoration: c.majoration === undefined ? livreur.majoration : (c.majoration ?? undefined),
     logoUrl: c.logoUrl === undefined ? (livreur.logo ?? null) : c.logoUrl,
     nomSite: c.nomSite?.trim() || livreur.nom,
+    parrainage: c.parrainage ?? { actif: true, montantParrain: 3, montantFilleul: 3 },
+    paiements: c.paiements ?? { especes: true, flouciD17: false, carteTpe: false },
   };
 }
 

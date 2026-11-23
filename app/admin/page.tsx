@@ -10,6 +10,8 @@ import ClientsPanel from './ClientsPanel';
 import LivreursPanel from './LivreursPanel';
 import RestaurantsPanel from './RestaurantsPanel';
 import ReglagesPanel from './ReglagesPanel';
+import SupportAdminPanel from './SupportAdminPanel';
+import ChatCommandeBox from '@/app/components/ChatCommandeBox';
 import type { PointTracking } from './CarteTracking';
 import {
   activerAlertesNavigateur,
@@ -74,11 +76,13 @@ type ReglagesApi = {
     majoration?: Majoration;
     logoUrl?: string | null;
     nomSite?: string | null;
+    parrainage?: { actif: boolean; montantParrain: number; montantFilleul: number };
+    paiements?: { especes: boolean; flouciD17: boolean; carteTpe: boolean; numeroD17?: string };
   };
   pauseActive: boolean;
 };
 
-type Onglet = 'accueil' | 'commandes' | 'reglages' | 'clients' | 'livreurs' | 'restaurants';
+type Onglet = 'accueil' | 'commandes' | 'reglages' | 'clients' | 'livreurs' | 'restaurants' | 'support';
 
 const STATUTS: { cle: StatutCommande; label: string; cls: string }[] = [
   { cle: 'nouvelle', label: 'Reçue', cls: 'bg-blue-100 text-blue-800' },
@@ -146,6 +150,8 @@ export default function PageAdmin() {
     (LivreurGestion & { commandesEnCours?: { ref: string; titre: string; statut: string }[] })[]
   >([]);
   const [restosIndex, setRestosIndex] = useState<RestoInfoIndex[]>([]);
+  const [chatCmdId, setChatCmdId] = useState<string | null>(null);
+  const [ticketsOuverts, setTicketsOuverts] = useState(0);
   const [sonActif, setSonActif] = useState(true);
   const sonActifRef = useRef(true);
   const seenCmdIdsRef = useRef<Set<string> | null>(null);
@@ -306,6 +312,7 @@ export default function PageAdmin() {
         fetch('/api/admin/livreurs', { credentials: 'same-origin' }),
         fetch('/api/admin/restaurants', { credentials: 'same-origin' }),
         fetch('/api/admin/tracking', { credentials: 'same-origin' }),
+        fetch('/api/support', { credentials: 'same-origin' }),
       );
     }
     const res = await Promise.all(reqs);
@@ -346,6 +353,7 @@ export default function PageAdmin() {
     }
     if (res[5]?.ok) setRestaurants((await res[5].json()).restaurants ?? []);
     if (res[6]?.ok) setTrackingLivreurs((await res[6].json()).livreurs ?? []);
+    if (res[7]?.ok) setTicketsOuverts(Number((await res[7].json()).ouverts ?? 0));
   }, []);
 
   useEffect(() => {
@@ -727,6 +735,7 @@ export default function PageAdmin() {
                   ['livreurs', `🛵 Équipe & Gains (${livreurs.length})`],
                   ['restaurants', '🍽️ Restos & Prix'],
                   ['clients', `👥 Clients (${clients.length})`],
+                  ['support', `🎧 Support${ticketsOuverts > 0 ? ` (${ticketsOuverts})` : ''}`],
                   ['reglages', '⚙️ Réglages'],
                 ] as const)
               : []),
@@ -860,17 +869,32 @@ export default function PageAdmin() {
           </div>
 
           {user.role === 'admin' && (
-            <button
-              type="button"
-              onClick={() => setOnglet('livreurs')}
-              className="flex items-center justify-between rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-left shadow-sm"
-            >
-              <div>
-                <p className="m-0 text-sm font-extrabold text-emerald-900">💰 Équipe & Gains ({livreurs.length})</p>
-                <p className="m-0 text-xs font-bold text-emerald-800">À récupérer : {fmtPrix(totalARecuperer)}</p>
-              </div>
-              <span className="text-xl font-bold text-emerald-700">›</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setOnglet('livreurs')}
+                className="flex items-center justify-between rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-left shadow-sm"
+              >
+                <div>
+                  <p className="m-0 text-sm font-extrabold text-emerald-900">💰 Équipe &amp; Gains ({livreurs.length})</p>
+                  <p className="m-0 text-xs font-bold text-emerald-800">À récupérer : {fmtPrix(totalARecuperer)}</p>
+                </div>
+                <span className="text-xl font-bold text-emerald-700">›</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOnglet('support')}
+                className="flex items-center justify-between rounded-3xl border border-blue-200 bg-blue-50 p-4 text-left shadow-sm"
+              >
+                <div>
+                  <p className="m-0 text-sm font-extrabold text-blue-950">🎧 Support &amp; Avis clients</p>
+                  <p className="m-0 text-xs font-bold text-blue-800">
+                    {ticketsOuverts > 0 ? `${ticketsOuverts} ticket(s) en attente` : 'Répondre aux clients et modérer les avis'}
+                  </p>
+                </div>
+                <span className="text-xl font-bold text-blue-700">›</span>
+              </button>
+            </>
           )}
         </div>
       )}
@@ -923,6 +947,19 @@ export default function PageAdmin() {
               </button>
             ))}
           </div>
+
+          {mode === 'pc' && user.role === 'admin' && chatCmdId && (() => {
+            const cChat = commandes.find((x) => x.id === chatCmdId);
+            if (!cChat) return null;
+            return (
+              <ChatCommandeBox
+                commandeId={cChat.id}
+                titre={`Chat commande N° ${cChat.ref} — ${cChat.client_nom} (${cChat.titre})`}
+                monRole="admin"
+                onClose={() => setChatCmdId(null)}
+              />
+            );
+          })()}
 
           {commandesFiltrees.length === 0 ? (
             <div className="rounded-3xl bg-white p-8 text-center text-sm text-muted">Aucune commande dans ce filtre.</div>
@@ -1006,6 +1043,15 @@ export default function PageAdmin() {
                             <a href={lienGoogleMaps(c.adresse)} target="_blank" rel="noreferrer" className="rounded border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold">
                               🗺️
                             </a>
+                            <button
+                              type="button"
+                              onClick={() => setChatCmdId(chatCmdId === c.id ? null : c.id)}
+                              className={`rounded px-2 py-0.5 text-[10px] font-extrabold ${
+                                chatCmdId === c.id ? 'bg-ink text-white' : 'bg-primary/10 text-primary'
+                              }`}
+                            >
+                              💬 Chat
+                            </button>
                           </div>
                         </td>
                         <td className="py-3 pr-3 whitespace-nowrap">
@@ -1214,6 +1260,23 @@ export default function PageAdmin() {
                           🗺️ GPS
                         </a>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setChatCmdId(chatCmdId === c.id ? null : c.id)}
+                        className={`mt-2 h-10 w-full rounded-xl text-xs font-extrabold ${
+                          chatCmdId === c.id ? 'bg-ink text-white' : 'border border-black/10 bg-[#f6f7fb] text-ink'
+                        }`}
+                      >
+                        💬 {chatCmdId === c.id ? 'Fermer le chat client' : 'Chat en direct avec le client'}
+                      </button>
+                      {chatCmdId === c.id && (
+                        <ChatCommandeBox
+                          commandeId={c.id}
+                          titre={`Chat N° ${c.ref} — ${c.client_nom}`}
+                          monRole={user.role === 'admin' ? 'admin' : 'livreur'}
+                          onClose={() => setChatCmdId(null)}
+                        />
+                      )}
                     </div>
 
                     {/* Bloc Dispatch Admin (avec nb commandes en cours + distance en km) */}
@@ -1286,8 +1349,11 @@ export default function PageAdmin() {
         </div>
       )}
 
-      {/* ONGLET RÉGLAGES & TARIFS (TOUTES LES 15 GESTIONS) */}
+      {/* ONGLET RÉGLAGES & TARIFS */}
       {onglet === 'reglages' && <ReglagesPanel data={reglages} onSave={sauvegarderReglages} />}
+
+      {/* ONGLET SUPPORT & AVIS CLIENTS */}
+      {onglet === 'support' && <SupportAdminPanel onCountChange={setTicketsOuverts} />}
 
       {/* ONGLET CLIENTS CRM */}
       {onglet === 'clients' && <ClientsPanel clients={clients} campagnes={campagnes} onReload={() => chargerTout(user.role)} mode={mode} />}

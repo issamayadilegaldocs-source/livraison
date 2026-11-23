@@ -256,3 +256,78 @@ grant select, insert, update, delete on table
   public.restaurants_gestion,
   public.campagnes_notifications
 to service_role;
+
+-- ============================================================================
+-- Fonctionnalités Application (Avis, Chat commande, Support, Parrainage)
+-- ============================================================================
+
+alter table public.profiles
+  add column if not exists code_parrainage text unique,
+  add column if not exists credit_parrainage numeric(10,3) not null default 0,
+  add column if not exists parraine_par uuid references public.profiles(id) on delete set null;
+
+create table if not exists public.avis_restaurants (
+  id uuid primary key default gen_random_uuid(),
+  resto_slug text not null,
+  resto_nom text not null,
+  commande_id text,
+  user_id uuid references public.profiles(id) on delete set null,
+  client_nom text not null,
+  note smallint not null check (note >= 1 and note <= 5),
+  commentaire text,
+  visible boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create index if not exists avis_restaurants_slug_idx on public.avis_restaurants(resto_slug, created_at desc);
+alter table public.avis_restaurants enable row level security;
+
+create table if not exists public.chat_commandes (
+  id uuid primary key default gen_random_uuid(),
+  commande_id text not null,
+  sender_role text not null check (sender_role in ('client','livreur','admin')),
+  sender_nom text not null,
+  message text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists chat_commandes_cmd_idx on public.chat_commandes(commande_id, created_at asc);
+alter table public.chat_commandes enable row level security;
+
+create table if not exists public.tickets_support (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete set null,
+  client_nom text not null,
+  client_email text,
+  client_telephone text,
+  commande_ref text,
+  categorie text not null default 'order related' check (categorie in ('order related','others')),
+  titre text not null,
+  statut text not null default 'ouvert' check (statut in ('ouvert','en_cours','resolu')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists tickets_support_user_idx on public.tickets_support(user_id, updated_at desc);
+create index if not exists tickets_support_statut_idx on public.tickets_support(statut, updated_at desc);
+alter table public.tickets_support enable row level security;
+
+create table if not exists public.tickets_messages (
+  id uuid primary key default gen_random_uuid(),
+  ticket_id uuid not null references public.tickets_support(id) on delete cascade,
+  sender_role text not null check (sender_role in ('client','admin')),
+  sender_nom text not null,
+  message text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists tickets_messages_ticket_idx on public.tickets_messages(ticket_id, created_at asc);
+alter table public.tickets_messages enable row level security;
+
+create table if not exists public.parrainages (
+  id uuid primary key default gen_random_uuid(),
+  parrain_user_id uuid not null references public.profiles(id) on delete cascade,
+  filleul_user_id uuid not null unique references public.profiles(id) on delete cascade,
+  code text not null,
+  montant_parrain numeric(10,3) not null default 3,
+  montant_filleul numeric(10,3) not null default 3,
+  created_at timestamptz not null default now()
+);
+create index if not exists parrainages_parrain_idx on public.parrainages(parrain_user_id, created_at desc);
+alter table public.parrainages enable row level security;

@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from '@/app/components/Lien';
+import ChatCommandeBox from '@/app/components/ChatCommandeBox';
+import ParrainagePanel from './ParrainagePanel';
+import SupportPanel from './SupportPanel';
 import {
   ajouterAdresse,
   definirAdresseDefaut,
@@ -78,9 +81,58 @@ const fmtDate = (iso: string) => {
   }
 };
 
-function CarteCommande({ c }: { c: Commande }) {
+function CarteCommande({
+  c,
+  guestRef,
+  guestTel,
+}: {
+  c: Commande;
+  guestRef?: string;
+  guestTel?: string;
+}) {
   const b = BADGE[c.statut] ?? BADGE.nouvelle;
   const idxActuel = ETAPES.findIndex((e) => e.cle === c.statut);
+  const [chatOuvert, setChatOuvert] = useState(false);
+  const [avisOuvert, setAvisOuvert] = useState(false);
+  const [noteAvis, setNoteAvis] = useState(5);
+  const [commAvis, setCommAvis] = useState('');
+  const [avisEnvoye, setAvisEnvoye] = useState(false);
+  const [avisErr, setAvisErr] = useState('');
+  const [envoiAvis, setEnvoiAvis] = useState(false);
+
+  async function envoyerAvis(e: React.FormEvent) {
+    e.preventDefault();
+    if (!c.resto_slug) return;
+    setEnvoiAvis(true);
+    setAvisErr('');
+    try {
+      const r = await fetch('/api/avis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          resto_slug: c.resto_slug,
+          resto_nom: c.titre,
+          commande_id: c.id,
+          note: noteAvis,
+          commentaire: commAvis.trim() || undefined,
+          ...(guestRef ? { ref: guestRef } : {}),
+          ...(guestTel ? { tel: guestTel } : {}),
+        }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) {
+        setAvisErr(d?.erreur ?? 'Impossible d’enregistrer votre avis.');
+        return;
+      }
+      setAvisEnvoye(true);
+      setAvisOuvert(false);
+    } catch {
+      setAvisErr('Erreur réseau.');
+    } finally {
+      setEnvoiAvis(false);
+    }
+  }
 
   return (
     <article className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
@@ -151,20 +203,91 @@ function CarteCommande({ c }: { c: Commande }) {
         ))}
       </ul>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
         <p className="m-0 text-xs text-muted">
           📍 {c.adresse}
           {c.note ? ` · 📝 ${c.note}` : ''}
         </p>
-        {c.type === 'repas' && (
-          <Link
-            href={c.resto_slug ? `/resto/${c.resto_slug}` : `/c/tout?q=${encodeURIComponent(c.titre)}`}
-            className="inline-flex h-8 items-center rounded-xl bg-primary/10 px-3 text-xs font-extrabold text-primary hover:bg-primary/20"
-          >
-            🔄 Recommander
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {c.statut !== 'annulee' && (
+            <button
+              type="button"
+              onClick={() => setChatOuvert((v) => !v)}
+              className={`h-8 rounded-xl px-3 text-xs font-extrabold ${
+                chatOuvert ? 'bg-ink text-white' : 'border border-black/10 bg-[#f6f7fb] text-ink'
+              }`}
+            >
+              💬 {chatOuvert ? 'Fermer chat' : 'Chat livreur'}
+            </button>
+          )}
+          {c.type === 'repas' && c.resto_slug && !avisEnvoye && (
+            <button
+              type="button"
+              onClick={() => setAvisOuvert((v) => !v)}
+              className="h-8 rounded-xl bg-amber-100 px-3 text-xs font-extrabold text-amber-900"
+            >
+              ⭐ Noter
+            </button>
+          )}
+          {avisEnvoye && (
+            <span className="rounded-xl bg-emerald-100 px-2.5 py-1 text-[11px] font-extrabold text-emerald-800">
+              ✓ Avis envoyé
+            </span>
+          )}
+          {c.type === 'repas' && (
+            <Link
+              href={c.resto_slug ? `/resto/${c.resto_slug}` : `/c/tout?q=${encodeURIComponent(c.titre)}`}
+              className="inline-flex h-8 items-center rounded-xl bg-primary/10 px-3 text-xs font-extrabold text-primary hover:bg-primary/20"
+            >
+              🔄 Recommander
+            </Link>
+          )}
+        </div>
       </div>
+
+      {avisOuvert && c.resto_slug && (
+        <form onSubmit={envoyerAvis} className="mt-3 flex flex-col gap-2 rounded-2xl bg-amber-50/70 p-3">
+          <div className="flex items-center gap-1">
+            <span className="text-xs font-extrabold text-ink">Note pour {c.titre} :</span>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setNoteAvis(n)}
+                className={`text-xl ${n <= noteAvis ? 'text-saffron' : 'text-black/20'}`}
+              >
+                ★
+              </button>
+            ))}
+          </div>
+          <input
+            value={commAvis}
+            onChange={(e) => setCommAvis(e.target.value)}
+            maxLength={500}
+            placeholder="Votre commentaire (optionnel)…"
+            className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs"
+          />
+          {avisErr && <p className="m-0 text-xs font-bold text-red-700">{avisErr}</p>}
+          <button
+            type="submit"
+            disabled={envoiAvis}
+            className="h-9 self-start rounded-xl bg-ink px-4 text-xs font-extrabold text-white disabled:opacity-50"
+          >
+            {envoiAvis ? 'Envoi…' : 'Publier mon avis'}
+          </button>
+        </form>
+      )}
+
+      {chatOuvert && (
+        <ChatCommandeBox
+          commandeId={c.id}
+          titre={`Chat commande N° ${c.ref}${c.livreur_nom ? ` · ${c.livreur_nom}` : ''}`}
+          monRole="client"
+          guestRef={guestRef}
+          guestTel={guestTel}
+          onClose={() => setChatOuvert(false)}
+        />
+      )}
     </article>
   );
 }
@@ -176,7 +299,7 @@ export default function PageCompte() {
   const [chargement, setChargement] = useState(true);
   const [user, setUser] = useState<Profil | null>(null);
   const [ongletAuth, setOngletAuth] = useState<'login' | 'register' | 'suivi'>('login');
-  const [ongletCompte, setOngletCompte] = useState<'commandes' | 'adresses' | 'profil'>('commandes');
+  const [ongletCompte, setOngletCompte] = useState<'commandes' | 'parrainage' | 'adresses' | 'support' | 'profil'>('commandes');
   const [commandes, setCommandes] = useState<Commande[]>([]);
   const [adresses, setAdresses] = useState<AdresseClient[]>([]);
   const [adrLabel, setAdrLabel] = useState<AdresseClient['label']>('Maison');
@@ -507,7 +630,7 @@ export default function PageCompte() {
                 {envoi ? 'Recherche…' : 'Suivre ma commande'}
               </button>
             </form>
-            {cmdSuivi && <CarteCommande c={cmdSuivi} />}
+            {cmdSuivi && <CarteCommande c={cmdSuivi} guestRef={suiviRef.trim()} guestTel={suiviTel.trim()} />}
           </div>
         )}
       </div>
@@ -543,32 +666,32 @@ export default function PageCompte() {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-1.5 rounded-2xl bg-black/5 p-1">
-        <button
-          type="button"
-          onClick={() => setOngletCompte('commandes')}
-          className={`h-11 rounded-xl text-xs font-extrabold sm:text-sm ${ongletCompte === 'commandes' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
-        >
-          Commandes ({commandes.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setOngletCompte('adresses')}
-          className={`h-11 rounded-xl text-xs font-extrabold sm:text-sm ${ongletCompte === 'adresses' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
-        >
-          📍 Adresses ({adresses.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setOngletCompte('profil')}
-          className={`h-11 rounded-xl text-xs font-extrabold sm:text-sm ${ongletCompte === 'profil' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
-        >
-          Mon profil
-        </button>
+      <div className="no-scrollbar mt-4 flex gap-1.5 overflow-x-auto rounded-2xl bg-black/5 p-1">
+        {([
+          ['commandes', `📦 Commandes (${commandes.length})`],
+          ['parrainage', '🎁 Parrainage'],
+          ['adresses', `📍 Adresses (${adresses.length})`],
+          ['support', '🎧 Aide'],
+          ['profil', '👤 Profil'],
+        ] as const).map(([cle, label]) => (
+          <button
+            key={cle}
+            type="button"
+            onClick={() => setOngletCompte(cle)}
+            className={`h-11 shrink-0 flex-1 whitespace-nowrap rounded-xl px-3 text-xs font-extrabold transition sm:text-sm ${
+              ongletCompte === cle ? 'bg-white text-ink shadow-sm' : 'text-muted hover:text-ink'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {erreur && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{erreur}</p>}
       {msg && <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{msg}</p>}
+
+      {ongletCompte === 'parrainage' && <ParrainagePanel />}
+      {ongletCompte === 'support' && <SupportPanel />}
 
       {ongletCompte === 'commandes' && (
         <div className="mt-4 flex flex-col gap-5">

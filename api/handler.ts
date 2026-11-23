@@ -9,6 +9,9 @@ import {
 import {
   endpointRestosLive, gererAdmin, gererAuth, gererCompte, majPositionLivreur, suiviPublic,
 } from '../lib/plateforme';
+import {
+  gererAvis, gererChat, gererParrainage, gererSupport,
+} from '../lib/app-features';
 
 const L = livreur as Livreur;
 const env = process.env as unknown as Env;
@@ -32,6 +35,10 @@ export async function route(request: Request): Promise<Response> {
   switch (nom) {
     case 'auth': return gererAuth(request, env, id);
     case 'compte': return gererCompte(request, env, id);
+    case 'avis': return gererAvis(request, env);
+    case 'chat': return gererChat(request, env);
+    case 'parrainage': return gererParrainage(request, env, L);
+    case 'support': return gererSupport(request, env, L);
     case 'livreur': return id === 'position' && m === 'POST' ? majPositionLivreur(request, env, L) : NON('POST');
     case 'suivi': return m === 'GET' ? suiviPublic(request, env) : NON('GET');
     case 'restos-live': return m === 'GET' ? endpointRestosLive(request, env) : NON('GET');

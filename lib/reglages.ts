@@ -10,7 +10,7 @@ import type { LivraisonGratuite } from './livraison-gratuite';
 import type { ConfLivraison } from './livraison';
 import type { Service } from './service';
 
-export type Reglages = { pause: boolean; retour: string | null; service: Service | null; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; promos: PromoVue[]; plats: Record<string, Correction>; logoUrl?: string | null; nomSite?: string | null; majorationResto?: Regle | null };
+export type Reglages = { pause: boolean; retour: string | null; service: Service | null; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; promos: PromoVue[]; plats: Record<string, Correction>; logoUrl?: string | null; nomSite?: string | null; majorationResto?: Regle | null; parrainage?: { actif: boolean; montantParrain: number; montantFilleul: number }; paiements?: { especes: boolean; flouciD17: boolean; carteTpe: boolean; numeroD17?: string } };
 
 const DUREE_CACHE = 2 * 60_000;
 

@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation';
 import { getMenu, getResto, getRestos, imageUrl } from '@/lib/catalogue';
 import { T } from '@/lib/i18n';
 import { getLivreur } from '@/lib/livreur';
+import AvisRestoSection from '../../components/AvisRestoSection';
 import Img from '../../components/Img';
 import { Etoiles } from '../../components/RestoCard';
 import { MenuVivant, StatutResto } from './Vivant';
@@ -70,6 +71,7 @@ export default async function RestoPage({ params }: Params) {
         promos={(getLivreur().promos ?? []).filter((p) => p.actif && !p.code).map(vueClient)}
         restoPosition={resto.position}
       />
+      <AvisRestoSection slug={resto.slug} nom={resto.nom} />
     </>
   );
 }

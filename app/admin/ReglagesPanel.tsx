@@ -30,6 +30,8 @@ type ReglagesApi = {
     majoration?: Majoration;
     logoUrl?: string | null;
     nomSite?: string | null;
+    parrainage?: { actif: boolean; montantParrain: number; montantFilleul: number };
+    paiements?: { especes: boolean; flouciD17: boolean; carteTpe: boolean; numeroD17?: string };
   };
   pauseActive: boolean;
 };
@@ -93,6 +95,14 @@ export default function ReglagesPanel({
   const [logoUrl, setLogoUrl] = useState('');
   const [nomSite, setNomSite] = useState('');
   const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // Parrainage & Paiements
+  const [parrActif, setParrActif] = useState(true);
+  const [parrParrain, setParrParrain] = useState('3');
+  const [parrFilleul, setParrFilleul] = useState('3');
+  const [payFlouci, setPayFlouci] = useState(false);
+  const [payTpe, setPayTpe] = useState(false);
+  const [payNumD17, setPayNumD17] = useState('');
 
   // Majoration (marge livreur ajoutée aux prix des plats)
   const [majType, setMajType] = useState<'aucune' | 'montant' | 'pourcent'>('aucune');
@@ -170,6 +180,12 @@ export default function ReglagesPanel({
     });
     setLogoUrl(effectif.logoUrl ?? '');
     setNomSite(effectif.nomSite ?? '');
+    setParrActif(effectif.parrainage?.actif ?? true);
+    setParrParrain(String(effectif.parrainage?.montantParrain ?? 3));
+    setParrFilleul(String(effectif.parrainage?.montantFilleul ?? 3));
+    setPayFlouci(Boolean(effectif.paiements?.flouciD17));
+    setPayTpe(Boolean(effectif.paiements?.carteTpe));
+    setPayNumD17(effectif.paiements?.numeroD17 ?? '');
     const mt = effectif.majoration?.tous;
     if (mt && 'montant' in mt) {
       setMajType('montant');
@@ -505,6 +521,82 @@ export default function ReglagesPanel({
         </section>
 
         {/* BLOC 2 : PRIX DE LIVRAISON + LIVRAISON GRATUITE + PLUIE */}
+        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+          <h3 className="m-0 text-base font-extrabold">🎁 Parrainage &amp; 💳 Paiements</h3>
+          <p className="m-0 mt-0.5 text-xs text-muted">Configurez les récompenses de parrainage client et les moyens de paiement acceptés.</p>
+
+          <div className="mt-3 rounded-2xl bg-[#f6f7fb] p-3">
+            <label className="flex items-center gap-2 text-xs font-extrabold">
+              <input type="checkbox" checked={parrActif} onChange={(e) => setParrActif(e.target.checked)} className="h-4 w-4 accent-primary" />
+              Programme de parrainage activé (/compte → 🎁 Parrainage)
+            </label>
+            {parrActif && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <label className="text-xs font-bold">
+                  Gain parrain (DT)
+                  <input type="number" step="0.5" min="0" max="50" value={parrParrain} onChange={(e) => setParrParrain(e.target.value)} className={inp} />
+                </label>
+                <label className="text-xs font-bold">
+                  Gain filleul (DT)
+                  <input type="number" step="0.5" min="0" max="50" value={parrFilleul} onChange={(e) => setParrFilleul(e.target.value)} className={inp} />
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-2.5 rounded-2xl bg-[#f6f7fb] p-3">
+            <p className="m-0 text-xs font-extrabold text-ink">Moyens de paiement acceptés</p>
+            <div className="mt-2 flex flex-col gap-1.5 text-xs font-bold">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked readOnly className="h-4 w-4 accent-primary" />
+                💵 Espèces à la livraison (toujours actif)
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={payFlouci} onChange={(e) => setPayFlouci(e.target.checked)} className="h-4 w-4 accent-primary" />
+                📱 Flouci / D17 (virement instantané)
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={payTpe} onChange={(e) => setPayTpe(e.target.checked)} className="h-4 w-4 accent-primary" />
+                💳 Carte bancaire (TPE mobile du livreur)
+              </label>
+            </div>
+            {payFlouci && (
+              <label className="mt-2 block text-xs font-bold">
+                Numéro / RIB Flouci ou D17 affiché au client
+                <input value={payNumD17} onChange={(e) => setPayNumD17(e.target.value)} placeholder="Ex. 22 123 456" className={inp} />
+              </label>
+            )}
+          </div>
+
+          <button
+            type="button"
+            disabled={saving === 'app'}
+            onClick={() =>
+              enregistrer(
+                'app',
+                {
+                  parrainage: {
+                    actif: parrActif,
+                    montantParrain: num(parrParrain, 3),
+                    montantFilleul: num(parrFilleul, 3),
+                  },
+                  paiements: {
+                    especes: true,
+                    flouciD17: payFlouci,
+                    carteTpe: payTpe,
+                    ...(payNumD17.trim() ? { numeroD17: payNumD17.trim() } : {}),
+                  },
+                },
+                'Parrainage et paiements',
+              )
+            }
+            className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+          >
+            Enregistrer parrainage &amp; paiements
+          </button>
+        </section>
+
+        {/* BLOC 2B : PRIX DE LIVRAISON + LIVRAISON GRATUITE + PLUIE */}
         <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
           <h3 className="m-0 text-base font-extrabold">🛵 Prix de la livraison</h3>
           <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
