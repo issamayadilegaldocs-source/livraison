@@ -504,6 +504,129 @@ export async function gererAuth(req: Request, env: Env, action: string): Promise
     return json({ user: profile }, 200, { 'Set-Cookie': cookieSessionHeader(req, session.access_token) });
   }
 
+  // Fournisseurs activés (ex. Google OAuth côté Supabase Auth)
+  if (action === 'providers' && req.method === 'GET') {
+    const r = await fetch(`${sb.url}/auth/v1/settings`, { headers: { apikey: sb.cle } }).catch(() => null);
+    const d = r && r.ok ? ((await r.json().catch(() => null)) as { external?: { google?: boolean } } | null) : null;
+    return json({ google: Boolean(d?.external?.google), magic: true });
+  }
+
+  // Redirection OAuth Google via Supabase Auth -> retour sur /compte#access_token=...
+  if (action === 'google' && req.method === 'GET') {
+    const origine = new URL(req.url).origin;
+    const redirectTo = `${origine}/compte`;
+    const target = `${sb.url}/auth/v1/authorize?provider=google&redirect_to=${enc(redirectTo)}`;
+    return Response.redirect(target, 302);
+  }
+
+  // Finalisation OAuth Google ou Lien Magique : valide l'access_token et pose le cookie HttpOnly liv_session
+  if (action === 'oauth' && req.method === 'POST') {
+    const body = (await req.json().catch(() => null)) as { access_token?: unknown } | null;
+    const token = typeof body?.access_token === 'string' ? body.access_token.trim() : '';
+    if (!token || token.length < 20) return err(400, 'Jeton de session invalide.');
+
+    const uRes = await fetch(`${sb.url}/auth/v1/user`, {
+      headers: { apikey: sb.cle, Authorization: `Bearer ${token}` },
+    }).catch(() => null);
+    if (!uRes || !uRes.ok) return err(401, 'Session expirée ou invalide.');
+    const au = (await uRes.json()) as {
+      id: string;
+      email?: string;
+      app_metadata?: { role?: string };
+      user_metadata?: { full_name?: string; name?: string; nom?: string; telephone?: string };
+    };
+    const email = (au.email ?? '').toLowerCase();
+    if (!au.id || !email) return err(401, 'Compte incomplet.');
+
+    const profRes = await restFetch(sb, `profiles?id=eq.${enc(au.id)}&select=*&limit=1`);
+    const rows = profRes.ok ? ((await profRes.json().catch(() => [])) as ProfilUtilisateur[]) : [];
+    let profile = rows[0];
+    if (!profile) {
+      const role: Role =
+        au.app_metadata?.role === 'admin' ? 'admin' : au.app_metadata?.role === 'livreur' ? 'livreur' : 'client';
+      const nomGoogle = au.user_metadata?.full_name || au.user_metadata?.name || au.user_metadata?.nom || email.split('@')[0];
+      const telNorm = au.user_metadata?.telephone ? normaliserTelephone(au.user_metadata.telephone) : null;
+      profile = {
+        id: au.id,
+        email,
+        role,
+        nom: nomGoogle.slice(0, 80),
+        telephone: telNorm,
+        adresse: null,
+        position: null,
+        marketing_opt_in: true,
+        actif: true,
+      };
+      await restFetch(
+        sb,
+        'profiles?on_conflict=id',
+        { method: 'POST', body: JSON.stringify({ ...profile, updated_at: new Date().toISOString() }) },
+        { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      ).catch(() => {});
+      if (telNorm) {
+        await enregistrerClientCRM(env, {
+          telephone: telNorm,
+          nom: profile.nom,
+          email,
+          userId: au.id,
+          marketingOptIn: true,
+        }).catch(() => {});
+      }
+    }
+    if (!profile.actif) return err(403, 'Ce compte est désactivé.');
+    return json({ user: profile }, 200, { 'Set-Cookie': cookieSessionHeader(req, token) });
+  }
+
+  // Connexion / Inscription Express sans mot de passe (lien magique envoyé par email)
+  if (action === 'magic' && req.method === 'POST') {
+    const body = (await req.json().catch(() => null)) as { email?: unknown; nom?: unknown; telephone?: unknown } | null;
+    const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return err(400, 'Adresse email invalide.');
+    }
+    const nomOpt = typeof body?.nom === 'string' ? body.nom.trim().slice(0, 80) : '';
+    const telOpt = typeof body?.telephone === 'string' ? normaliserTelephone(body.telephone) : null;
+
+    // Si nouveau compte, on le crée directement côté client (sans escalade admin)
+    const origine = new URL(req.url).origin;
+    const glRes = await fetch(`${sb.url}/auth/v1/admin/generate_link`, {
+      method: 'POST',
+      headers: authAdminHeaders(sb.cle),
+      body: JSON.stringify({
+        type: 'magiclink',
+        email,
+        data: { ...(nomOpt ? { nom: nomOpt } : {}), ...(telOpt ? { telephone: telOpt } : {}) },
+        options: { redirectTo: `${origine}/compte` },
+      }),
+    }).catch(() => null);
+    if (!glRes || !glRes.ok) {
+      return err(500, 'Impossible de générer le lien de connexion.');
+    }
+    const glData = (await glRes.json().catch(() => null)) as { action_link?: string; properties?: { action_link?: string } } | null;
+    const lien = glData?.action_link || glData?.properties?.action_link;
+    if (!lien) return err(500, 'Lien de connexion indisponible.');
+
+    const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;background:#f6f7fb;padding:16px;color:#111">
+<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:20px;padding:24px;text-align:center">
+<h2 style="margin:0 0 8px">⚡ Connexion rapide</h2>
+<p style="margin:0 0 18px;color:#555;font-size:14px">Cliquez sur le bouton ci-dessous pour accéder immédiatement à votre compte, sans mot de passe :</p>
+<a href="${echapperHtml(lien)}" style="display:inline-block;background:#1a6be0;color:#fff;text-decoration:none;font-weight:800;padding:14px 26px;border-radius:14px;font-size:15px">Me connecter en 1 clic →</a>
+<p style="margin:18px 0 0;color:#888;font-size:12px">Si vous n'avez pas demandé ce lien, ignorez simplement cet email.</p>
+</div></body></html>`;
+
+    const statutEmail = await envoyerEmail(
+      email,
+      '⚡ Votre lien de connexion en 1 clic',
+      `Cliquez sur ce lien pour vous connecter sans mot de passe :\n${lien}`,
+      env,
+      html,
+    );
+    if (statutEmail !== 'sent') {
+      return err(503, 'Envoi de l’email momentanément indisponible. Utilisez la connexion avec mot de passe.');
+    }
+    return json({ ok: true, message: `Lien de connexion envoyé à ${email} ! Vérifiez votre boîte mail.` });
+  }
+
   return err(404, 'Route auth introuvable.');
 }
 

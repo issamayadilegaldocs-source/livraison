@@ -37,6 +37,7 @@ type ReglagesApi = {
 };
 
 type RestoSimple = { slug: string; nom: string };
+type SectionReglage = 'essentiel' | 'gains' | 'promos' | 'options';
 
 const num = (v: string, def = 0) => {
   const n = Number(String(v).replace(',', '.'));
@@ -45,6 +46,12 @@ const num = (v: string, def = 0) => {
 
 const inp = 'mt-1 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:border-primary';
 
+const PRESETS_LIVRAISON = [
+  { label: '⚡ Standard (2 DT + 0,5/km)', base: '2', parKm: '0.5', min: '2', max: '10', rayonMaxKm: '15' },
+  { label: '🎯 Fixe 3 DT partout', base: '3', parKm: '0', min: '3', max: '3', rayonMaxKm: '15' },
+  { label: '💚 Éco (1,5 DT + 0,4/km)', base: '1.5', parKm: '0.4', min: '1.5', max: '8', rayonMaxKm: '12' },
+];
+
 export default function ReglagesPanel({
   data,
   onSave,
@@ -52,6 +59,7 @@ export default function ReglagesPanel({
   data: ReglagesApi | null;
   onSave: (patch: Record<string, unknown>) => Promise<string | null>;
 }) {
+  const [section, setSection] = useState<SectionReglage>('essentiel');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
@@ -91,7 +99,7 @@ export default function ReglagesPanel({
   const [commResto, setCommResto] = useState('');
   const [commPct, setCommPct] = useState('10');
 
-  // Logo & Nom du site (upload ou URL)
+  // Logo & Nom du site
   const [logoUrl, setLogoUrl] = useState('');
   const [nomSite, setNomSite] = useState('');
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -104,7 +112,7 @@ export default function ReglagesPanel({
   const [payTpe, setPayTpe] = useState(false);
   const [payNumD17, setPayNumD17] = useState('');
 
-  // Majoration (marge livreur ajoutée aux prix des plats)
+  // Majoration
   const [majType, setMajType] = useState<'aucune' | 'montant' | 'pourcent'>('aucune');
   const [majVal, setMajVal] = useState('1');
   const [majRestoSlug, setMajRestoSlug] = useState('');
@@ -280,490 +288,599 @@ export default function ReglagesPanel({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Bandeau Mise en place rapide en 3 étapes pour un livreur */}
+      <div className="rounded-3xl bg-gradient-to-r from-ink to-primary p-4 text-white shadow-sm sm:p-5">
+        <p className="m-0 text-xs font-extrabold uppercase tracking-wider text-white/80">🚀 Mise en place rapide (1 minute)</p>
+        <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => setSection('essentiel')}
+            className="flex items-center justify-between rounded-2xl bg-white/15 px-3.5 py-2.5 text-left text-xs font-extrabold hover:bg-white/25"
+          >
+            <span>1. Mon nom, logo &amp; prix</span>
+            <span>{logoUrl ? '✅' : '→'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSection('gains')}
+            className="flex items-center justify-between rounded-2xl bg-white/15 px-3.5 py-2.5 text-left text-xs font-extrabold hover:bg-white/25"
+          >
+            <span>2. Ma marge sur les plats</span>
+            <span>{majType !== 'aucune' ? '✅' : '→'}</span>
+          </button>
+          <a
+            href="/api/push"
+            className="flex items-center justify-between rounded-2xl bg-amber-400 px-3.5 py-2.5 text-left text-xs font-extrabold text-ink hover:opacity-95"
+          >
+            <span>3. Activer alertes téléphone</span>
+            <span>🔔</span>
+          </a>
+        </div>
+      </div>
+
+      {/* 4 onglets simples pour ne jamais surcharger l'écran */}
+      <div className="no-scrollbar flex gap-1.5 overflow-x-auto rounded-2xl bg-black/5 p-1">
+        {([
+          ['essentiel', '⚡ Essentiel'],
+          ['gains', '💵 Mes gains'],
+          ['promos', '🎁 Promos & Clients'],
+          ['options', '📦 Colis & Options'],
+        ] as const).map(([cle, lbl]) => (
+          <button
+            key={cle}
+            type="button"
+            onClick={() => setSection(cle)}
+            className={`h-11 shrink-0 flex-1 whitespace-nowrap rounded-xl px-4 text-xs font-extrabold transition sm:text-sm ${
+              section === cle ? 'bg-white text-primary shadow-sm' : 'text-muted hover:text-ink'
+            }`}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+
       {err && <div className="rounded-2xl bg-red-50 px-4 py-3 text-xs font-extrabold text-red-700">❌ {err}</div>}
       {msg && <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-xs font-extrabold text-emerald-800">{msg}</div>}
 
-      {/* BLOC 1 : L'ESSENTIEL DU JOUR (Ouvert/Pause + Alertes + Horaires) */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="m-0 text-base font-extrabold">🚦 Ouvert / Pause</h3>
-              <p className="m-0 text-xs text-muted">
-                {data.pauseActive ? 'Commandes bloquées sur le site.' : 'Les clients peuvent commander.'}
-              </p>
+      {/* ONGLET 1 : ESSENTIEL (90% de l'usage quotidien d'un livreur) */}
+      {section === 'essentiel' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Ouvert / Pause */}
+          <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="m-0 text-base font-extrabold">🚦 Statut du site</h3>
+                <p className="m-0 text-xs text-muted">
+                  {data.pauseActive ? 'Commandes en pause.' : 'Ouvert : vos clients peuvent commander.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={saving === 'pause'}
+                onClick={() =>
+                  enregistrer(
+                    'pause',
+                    data.pauseActive ? { pause: false, retour: undefined } : { pause: true, ...(retour ? { retour } : {}) },
+                    data.pauseActive ? 'Site rouvert' : 'Site mis en pause',
+                  )
+                }
+                className={`h-11 rounded-2xl px-4 text-xs font-extrabold text-white ${data.pauseActive ? 'bg-emerald-600' : 'bg-red-600'}`}
+              >
+                {data.pauseActive ? '▶ Rouvrir' : '⏸ Mettre en pause'}
+              </button>
+            </div>
+            {!data.pauseActive && (
+              <label className="mt-3 block text-xs font-bold text-muted">
+                Heure de retour automatique (optionnel)
+                <input type="datetime-local" value={retour} onChange={(e) => setRetour(e.target.value)} className={inp} />
+              </label>
+            )}
+          </section>
+
+          {/* Logo & Nom du site */}
+          <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+            <h3 className="m-0 text-base font-extrabold">🎨 Nom &amp; Logo du site</h3>
+            <div className="mt-3 flex gap-1.5">
+              <input
+                value={nomSite}
+                onChange={(e) => setNomSite(e.target.value)}
+                maxLength={60}
+                placeholder="Nom du site (ex. Ahmed Livraison)"
+                className="h-10 flex-1 rounded-xl border border-black/10 bg-[#f6f7fb] px-3 text-sm font-bold outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                disabled={saving === 'nomSite'}
+                onClick={() => enregistrer('nomSite', { nomSite: nomSite.trim() || null }, 'Nom du site')}
+                className="h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+              >
+                OK
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center gap-3">
+              {logoUrl ? (
+                <img src={logoUrl} alt="Logo" className="h-14 w-14 rounded-2xl border border-black/10 object-cover" />
+              ) : (
+                <div className="grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 text-2xl">🛵</div>
+              )}
+              <div className="flex flex-1 flex-col gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
+                  <label className="inline-flex h-9 cursor-pointer items-center rounded-xl bg-ink px-3 text-xs font-extrabold text-white">
+                    <span>{uploadingLogo ? 'Envoi…' : '📤 Importer logo'}</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      disabled={uploadingLogo}
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploaderLogo(f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => { setLogoUrl(''); enregistrer('logo', { logoUrl: null }, 'Logo par défaut'); }}
+                      className="h-9 rounded-xl border border-black/10 px-2.5 text-xs font-bold text-red-700"
+                    >
+                      Retirer
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-1.5">
+                  <input
+                    value={logoUrl}
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    placeholder="Ou lien image https://…"
+                    className="h-8 flex-1 rounded-lg border border-black/10 px-2.5 text-xs"
+                  />
+                  <button
+                    type="button"
+                    disabled={saving === 'logo'}
+                    onClick={() => enregistrer('logo', { logoUrl: logoUrl.trim() || null }, 'Logo')}
+                    className="h-8 rounded-lg bg-primary px-3 text-xs font-extrabold text-white"
+                  >
+                    OK
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Prix de la livraison avec 3 packs en 1 clic */}
+          <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+            <h3 className="m-0 text-base font-extrabold">🛵 Prix de la livraison</h3>
+            <p className="m-0 mt-0.5 text-xs text-muted">Choisissez un tarif prêt à l’emploi en 1 clic ou ajustez vos chiffres :</p>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {PRESETS_LIVRAISON.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    setFrais({ base: p.base, parKm: p.parKm, min: p.min, max: p.max, rayonMaxKm: p.rayonMaxKm });
+                    enregistrer(
+                      'frais',
+                      { frais: { base: num(p.base), parKm: num(p.parKm), min: num(p.min), max: num(p.max), rayonMaxKm: num(p.rayonMaxKm) } },
+                      p.label,
+                    );
+                  }}
+                  className="rounded-xl border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-[11px] font-extrabold text-primary hover:bg-primary/15"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              <label className="text-xs font-bold">Départ (DT)<input type="number" step="0.1" value={frais.base} onChange={(e) => setFrais({ ...frais, base: e.target.value })} className={inp} /></label>
+              <label className="text-xs font-bold">Par km (DT)<input type="number" step="0.1" value={frais.parKm} onChange={(e) => setFrais({ ...frais, parKm: e.target.value })} className={inp} /></label>
+              <label className="text-xs font-bold">Minimum (DT)<input type="number" step="0.1" value={frais.min} onChange={(e) => setFrais({ ...frais, min: e.target.value })} className={inp} /></label>
+              <label className="text-xs font-bold">Maximum (DT)<input type="number" step="0.1" value={frais.max} onChange={(e) => setFrais({ ...frais, max: e.target.value })} className={inp} /></label>
+              <label className="text-xs font-bold">Rayon max (km)<input type="number" step="1" value={frais.rayonMaxKm} onChange={(e) => setFrais({ ...frais, rayonMaxKm: e.target.value })} className={inp} /></label>
             </div>
             <button
               type="button"
-              disabled={saving === 'pause'}
+              disabled={saving === 'frais'}
               onClick={() =>
                 enregistrer(
-                  'pause',
-                  data.pauseActive ? { pause: false, retour: undefined } : { pause: true, ...(retour ? { retour } : {}) },
-                  data.pauseActive ? 'Site rouvert' : 'Site mis en pause',
+                  'frais',
+                  { frais: { base: num(frais.base, 1), parKm: num(frais.parKm, 0.5), min: num(frais.min, 1), max: num(frais.max, 12), rayonMaxKm: num(frais.rayonMaxKm, 15) } },
+                  'Prix de livraison',
                 )
               }
-              className={`h-11 rounded-2xl px-4 text-xs font-extrabold text-white ${data.pauseActive ? 'bg-emerald-600' : 'bg-red-600'}`}
+              className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
             >
-              {data.pauseActive ? '▶ Rouvrir' : '⏸ Mettre en pause'}
+              Enregistrer mes prix
             </button>
-          </div>
-          {!data.pauseActive && (
-            <label className="mt-3 block text-xs font-bold text-muted">
-              Heure de retour automatique (optionnel)
-              <input type="datetime-local" value={retour} onChange={(e) => setRetour(e.target.value)} className={inp} />
-            </label>
-          )}
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-black/5 pt-3">
-            <span className="text-xs font-bold text-ink">🔔 Alertes sonores sur ce téléphone</span>
-            <a href="/api/push" className="inline-flex h-9 items-center rounded-xl bg-amber-500 px-3.5 text-xs font-extrabold text-white">
-              Activer les notifications
-            </a>
-          </div>
-        </section>
+          </section>
 
-        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-          <h3 className="m-0 text-base font-extrabold">⏰ Horaires & Message d’annonce</h3>
-          <label className="mt-2 flex items-center gap-2 text-xs font-extrabold">
-            <input type="checkbox" checked={horairesActif} onChange={(e) => setHorairesActif(e.target.checked)} className="h-4 w-4 accent-primary" />
-            Fermer automatiquement hors horaires
-          </label>
-          <div className="mt-2 grid grid-cols-2 gap-2.5">
-            <label className="text-xs font-bold">Ouverture<input type="time" disabled={!horairesActif} value={ouvre} onChange={(e) => setOuvre(e.target.value)} className={inp} /></label>
-            <label className="text-xs font-bold">Fermeture<input type="time" disabled={!horairesActif} value={ferme} onChange={(e) => setFerme(e.target.value)} className={inp} /></label>
-          </div>
-          <label className="mt-2.5 block text-xs font-bold">
-            Bandeau annonce en haut du site (optionnel)
-            <input maxLength={140} value={annonce} onChange={(e) => setAnnonce(e.target.value)} placeholder="Ex. Livraison rapide partout à Sfax !" className={inp} />
-          </label>
-          <button
-            type="button"
-            disabled={saving === 'horaires'}
-            onClick={() => enregistrer('horaires', { service: horairesActif ? { ouvre, ferme } : null, annonce: annonce.trim() || null }, 'Horaires et annonce')}
-            className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
-          >
-            Enregistrer
-          </button>
-        </section>
-
-        {/* BLOC MAJORATION (marge ajoutée aux plats) */}
-        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-          <h3 className="m-0 text-base font-extrabold">💵 Majoration (ta marge sur les plats)</h3>
-          <p className="m-0 mt-0.5 text-xs text-muted">
-            Ajoutée automatiquement aux prix des restos. Le client ne voit que le prix final ; ta marge apparaît dans tes emails de commande.
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2.5">
-            <label className="text-xs font-bold">
-              Sur tous les restos
-              <select value={majType} onChange={(e) => setMajType(e.target.value as 'aucune' | 'montant' | 'pourcent')} className={inp}>
-                <option value="aucune">Aucune majoration</option>
-                <option value="montant">Montant fixe par plat (+ DT)</option>
-                <option value="pourcent">Pourcentage (+ %)</option>
-              </select>
+          {/* Horaires & Annonce */}
+          <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+            <h3 className="m-0 text-base font-extrabold">⏰ Horaires &amp; Message en haut du site</h3>
+            <label className="mt-2.5 flex items-center gap-2 text-xs font-extrabold">
+              <input type="checkbox" checked={horairesActif} onChange={(e) => setHorairesActif(e.target.checked)} className="h-4 w-4 accent-primary" />
+              Fermer automatiquement en dehors de mes horaires
             </label>
-            <label className="text-xs font-bold">
-              Valeur {majType === 'montant' ? '(DT)' : majType === 'pourcent' ? '(%)' : ''}
-              <input type="number" step="0.1" min="0.1" disabled={majType === 'aucune'} value={majVal} onChange={(e) => setMajVal(e.target.value)} className={inp} />
-            </label>
-          </div>
-          {majType !== 'aucune' && (
-            <p className="m-0 mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
-              Exemple : un plat à 10 DT sera affiché à{' '}
-              <b>
-                {majType === 'montant'
-                  ? `${(10 + num(majVal, 0)).toFixed(3).replace('.', ',')} DT`
-                  : `${(Math.ceil(10 * (100 + num(majVal, 0)) / 10) / 10).toFixed(3).replace('.', ',')} DT`}
-              </b>{' '}
-              au client.
-            </p>
-          )}
-          <button
-            type="button"
-            disabled={saving === 'maj'}
-            onClick={() => enregistrer('maj', { majoration: construireMajoration(majType, majVal, majRestos) }, 'Majoration')}
-            className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
-          >
-            Enregistrer la majoration
-          </button>
-
-          {/* Exception par restaurant */}
-          <div className="mt-3 border-t border-black/5 pt-3">
-            <p className="m-0 text-xs font-extrabold text-ink">Exception pour un restaurant précis</p>
-            <div className="mt-2 flex flex-wrap items-end gap-1.5">
-              <select value={majRestoSlug} onChange={(e) => setMajRestoSlug(e.target.value)} className="h-9 min-w-[140px] flex-1 rounded-xl border border-black/10 bg-white px-2.5 text-xs">
-                <option value="">Choisir un resto…</option>
-                {restos.map((r) => (
-                  <option key={r.slug} value={r.slug}>{r.nom}</option>
-                ))}
-              </select>
-              <select value={majRestoType} onChange={(e) => setMajRestoType(e.target.value as 'montant' | 'pourcent')} className="h-9 rounded-xl border border-black/10 bg-white px-2 text-xs font-bold">
-                <option value="montant">+ DT</option>
-                <option value="pourcent">+ %</option>
-              </select>
-              <input type="number" step="0.1" min="0.1" value={majRestoVal} onChange={(e) => setMajRestoVal(e.target.value)} className="h-9 w-16 rounded-xl border border-black/10 bg-white px-2 text-xs font-bold" />
-              <button
-                type="button"
-                disabled={!majRestoSlug}
-                onClick={() => {
-                  const v = num(majRestoVal, 0);
-                  if (!majRestoSlug || v <= 0) return;
-                  const regle: Regle = majRestoType === 'montant' ? { montant: v } : { pourcent: v };
-                  const nextRestos = { ...majRestos, [majRestoSlug]: regle };
-                  enregistrer('maj-r', { majoration: construireMajoration(majType, majVal, nextRestos) }, `Majoration ${majRestoSlug}`);
-                  setMajRestoSlug('');
-                }}
-                className="h-9 rounded-xl bg-ink px-3 text-xs font-extrabold text-white disabled:opacity-40"
-              >
-                +
-              </button>
+            <div className="mt-2 grid grid-cols-2 gap-2.5">
+              <label className="text-xs font-bold">Ouverture<input type="time" disabled={!horairesActif} value={ouvre} onChange={(e) => setOuvre(e.target.value)} className={inp} /></label>
+              <label className="text-xs font-bold">Fermeture<input type="time" disabled={!horairesActif} value={ferme} onChange={(e) => setFerme(e.target.value)} className={inp} /></label>
             </div>
-            {Object.keys(majRestos).length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {Object.entries(majRestos).map(([slug, r]) => (
-                  <span key={slug} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-extrabold text-emerald-900">
-                    {slug} : {'montant' in r ? `+${r.montant} DT` : `+${r.pourcent}%`}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextRestos = { ...majRestos };
-                        delete nextRestos[slug];
-                        enregistrer('maj-del', { majoration: construireMajoration(majType, majVal, nextRestos) }, 'Exception retirée');
-                      }}
-                      className="text-red-700"
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
+            <label className="mt-3 block text-xs font-bold">
+              Bandeau annonce (optionnel)
+              <input maxLength={140} value={annonce} onChange={(e) => setAnnonce(e.target.value)} placeholder="Ex. Livraison rapide partout à Sfax !" className={inp} />
+            </label>
+            <button
+              type="button"
+              disabled={saving === 'horaires'}
+              onClick={() => enregistrer('horaires', { service: horairesActif ? { ouvre, ferme } : null, annonce: annonce.trim() || null }, 'Horaires et annonce')}
+              className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+            >
+              Enregistrer
+            </button>
+          </section>
+        </div>
+      )}
+
+      {/* ONGLET 2 : MES GAINS (Majoration + Frais de service + Commissions restos) */}
+      {section === 'gains' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+            <h3 className="m-0 text-base font-extrabold">💵 Majoration (ta marge sur les plats)</h3>
+            <p className="m-0 mt-0.5 text-xs text-muted">
+              Ajoutée automatiquement aux prix des restos. Le client ne voit que le prix final.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2.5">
+              <label className="text-xs font-bold">
+                Sur tous les restos
+                <select value={majType} onChange={(e) => setMajType(e.target.value as 'aucune' | 'montant' | 'pourcent')} className={inp}>
+                  <option value="aucune">Aucune majoration</option>
+                  <option value="montant">Montant fixe (+ DT)</option>
+                  <option value="pourcent">Pourcentage (+ %)</option>
+                </select>
+              </label>
+              <label className="text-xs font-bold">
+                Valeur {majType === 'montant' ? '(DT)' : majType === 'pourcent' ? '(%)' : ''}
+                <input type="number" step="0.1" min="0.1" disabled={majType === 'aucune'} value={majVal} onChange={(e) => setMajVal(e.target.value)} className={inp} />
+              </label>
+            </div>
+            {majType !== 'aucune' && (
+              <p className="m-0 mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
+                Exemple : un plat à 10 DT passe à{' '}
+                <b>
+                  {majType === 'montant'
+                    ? `${(10 + num(majVal, 0)).toFixed(3).replace('.', ',')} DT`
+                    : `${(Math.ceil(10 * (100 + num(majVal, 0)) / 10) / 10).toFixed(3).replace('.', ',')} DT`}
+                </b>
+                .
+              </p>
             )}
-          </div>
-        </section>
+            <button
+              type="button"
+              disabled={saving === 'maj'}
+              onClick={() => enregistrer('maj', { majoration: construireMajoration(majType, majVal, majRestos) }, 'Majoration')}
+              className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+            >
+              Enregistrer la majoration
+            </button>
 
-        {/* BLOC LOGO & NOM DU SITE (upload ou URL + nom dynamique) */}
-        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-          <h3 className="m-0 text-base font-extrabold">🎨 Logo &amp; Nom du site</h3>
-          <p className="m-0 mt-0.5 text-xs text-muted">Affichés dans l’en-tête, le pied de page et le titre du navigateur en direct.</p>
-
-          <div className="mt-3 rounded-2xl bg-[#f6f7fb] p-3">
-            <label className="block text-xs font-bold text-ink">
-              Nom affiché du site (ex. Ahmed Livraison)
-              <div className="mt-1 flex gap-1.5">
-                <input
-                  value={nomSite}
-                  onChange={(e) => setNomSite(e.target.value)}
-                  maxLength={60}
-                  placeholder="Ex. Ahmed Livraison"
-                  className="h-10 flex-1 rounded-xl border border-black/10 bg-white px-3 text-sm font-bold outline-none focus:border-primary"
-                />
+            <div className="mt-3 border-t border-black/5 pt-3">
+              <p className="m-0 text-xs font-extrabold text-ink">Exception pour un restaurant précis</p>
+              <div className="mt-2 flex flex-wrap items-end gap-1.5">
+                <select value={majRestoSlug} onChange={(e) => setMajRestoSlug(e.target.value)} className="h-9 min-w-[140px] flex-1 rounded-xl border border-black/10 bg-white px-2.5 text-xs">
+                  <option value="">Choisir un resto…</option>
+                  {restos.map((r) => (
+                    <option key={r.slug} value={r.slug}>{r.nom}</option>
+                  ))}
+                </select>
+                <select value={majRestoType} onChange={(e) => setMajRestoType(e.target.value as 'montant' | 'pourcent')} className="h-9 rounded-xl border border-black/10 bg-white px-2 text-xs font-bold">
+                  <option value="montant">+ DT</option>
+                  <option value="pourcent">+ %</option>
+                </select>
+                <input type="number" step="0.1" min="0.1" value={majRestoVal} onChange={(e) => setMajRestoVal(e.target.value)} className="h-9 w-16 rounded-xl border border-black/10 bg-white px-2 text-xs font-bold" />
                 <button
                   type="button"
-                  disabled={saving === 'nomSite'}
-                  onClick={() => enregistrer('nomSite', { nomSite: nomSite.trim() || null }, 'Nom du site')}
-                  className="h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+                  disabled={!majRestoSlug}
+                  onClick={() => {
+                    const v = num(majRestoVal, 0);
+                    if (!majRestoSlug || v <= 0) return;
+                    const regle: Regle = majRestoType === 'montant' ? { montant: v } : { pourcent: v };
+                    const nextRestos = { ...majRestos, [majRestoSlug]: regle };
+                    enregistrer('maj-r', { majoration: construireMajoration(majType, majVal, nextRestos) }, `Majoration ${majRestoSlug}`);
+                    setMajRestoSlug('');
+                  }}
+                  className="h-9 rounded-xl bg-ink px-3 text-xs font-extrabold text-white disabled:opacity-40"
+                >
+                  +
+                </button>
+              </div>
+              {Object.keys(majRestos).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {Object.entries(majRestos).map(([slug, r]) => (
+                    <span key={slug} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-extrabold text-emerald-900">
+                      {slug} : {'montant' in r ? `+${r.montant} DT` : `+${r.pourcent}%`}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextRestos = { ...majRestos };
+                          delete nextRestos[slug];
+                          enregistrer('maj-del', { majoration: construireMajoration(majType, majVal, nextRestos) }, 'Exception retirée');
+                        }}
+                        className="text-red-700"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <div className="flex flex-col gap-4">
+            <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 text-sm font-extrabold">
+                  <input type="checkbox" checked={fsActif} onChange={(e) => setFsActif(e.target.checked)} className="h-4 w-4 accent-primary" />
+                  💳 Frais de service (% panier)
+                </label>
+                <button type="button" onClick={() => { setFsActif(true); setFsPct('8'); setFsMin('0.8'); setFsMax('5'); }} className="text-xs font-bold text-primary underline">
+                  Standard (8%)
+                </button>
+              </div>
+              <div className="mt-2.5 grid grid-cols-3 gap-2">
+                <label className="text-xs font-bold">%<input type="number" step="0.5" value={fsPct} onChange={(e) => setFsPct(e.target.value)} className={inp} /></label>
+                <label className="text-xs font-bold">Min (DT)<input type="number" step="0.1" value={fsMin} onChange={(e) => setFsMin(e.target.value)} className={inp} /></label>
+                <label className="text-xs font-bold">Max (DT)<input type="number" step="0.5" value={fsMax} onChange={(e) => setFsMax(e.target.value)} className={inp} /></label>
+              </div>
+              <button
+                type="button"
+                onClick={() => enregistrer('fs', { fraisService: fsActif ? { pourcent: num(fsPct, 8), min: num(fsMin, 0.8), max: num(fsMax, 5) } : null }, 'Frais de service')}
+                className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+              >
+                Enregistrer
+              </button>
+            </section>
+
+            <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+              <h3 className="m-0 text-base font-extrabold">📊 Commission sur les restaurants (%)</h3>
+              <div className="mt-2.5 flex flex-wrap items-end gap-2">
+                <label className="min-w-[160px] flex-1 text-xs font-bold">
+                  Restaurant
+                  <select value={commResto} onChange={(e) => setCommResto(e.target.value)} className={inp}>
+                    <option value="">Choisir un restaurant…</option>
+                    {restos.map((r) => (
+                      <option key={r.slug} value={r.slug}>{r.nom}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="w-20 text-xs font-bold">%<input type="number" min="0" max="50" value={commPct} onChange={(e) => setCommPct(e.target.value)} className={inp} /></label>
+                <button
+                  type="button"
+                  disabled={!commResto}
+                  onClick={() => {
+                    const pct = num(commPct, 0);
+                    const next = { ...commissionsRestos };
+                    if (pct > 0) next[commResto] = pct;
+                    else delete next[commResto];
+                    enregistrer('comm', { commission: Object.keys(next).length ? { restos: next } : {} }, 'Commission restaurant');
+                    setCommResto('');
+                  }}
+                  className="h-10 rounded-xl bg-ink px-4 text-xs font-extrabold text-white disabled:opacity-40"
+                >
+                  Ajouter
+                </button>
+              </div>
+              {Object.keys(commissionsRestos).length > 0 && (
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  {Object.entries(commissionsRestos).map(([slug, pct]) => (
+                    <span key={slug} className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-extrabold text-amber-900">
+                      {slug} : {pct}%
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = { ...commissionsRestos };
+                          delete next[slug];
+                          enregistrer('comm', { commission: Object.keys(next).length ? { restos: next } : {} }, 'Commission retirée');
+                        }}
+                        className="text-red-700"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      )}
+
+      {/* ONGLET 3 : PROMOS & CLIENTS */}
+      {section === 'promos' && (
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+              <h3 className="m-0 text-base font-extrabold">🎁 Livraison gratuite &amp; 🌧️ Pluie</h3>
+              <div className="mt-3 flex flex-col gap-3">
+                <div className="rounded-2xl bg-[#f6f7fb] p-3">
+                  <label className="flex items-center gap-2 text-xs font-extrabold">
+                    <input type="checkbox" checked={livGratActif} onChange={(e) => setLivGratActif(e.target.checked)} className="h-4 w-4 accent-primary" />
+                    Livraison gratuite activée
+                  </label>
+                  {livGratActif && (
+                    <label className="mt-2 block text-xs font-bold">
+                      À partir de (DT, vide = pour tous)
+                      <input type="number" step="1" value={livGratMin} onChange={(e) => setLivGratMin(e.target.value)} placeholder="Ex. 30" className={inp} />
+                    </label>
+                  )}
+                </div>
+                <div className="rounded-2xl bg-[#f6f7fb] p-3">
+                  <label className="flex items-center gap-2 text-xs font-extrabold">
+                    <input type="checkbox" checked={supManActif} onChange={(e) => setSupManActif(e.target.checked)} className="h-4 w-4 accent-primary" />
+                    Supplément pluie / forte affluence actif
+                  </label>
+                  {supManActif && (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <label className="text-xs font-bold">Nom<input value={supManNom} onChange={(e) => setSupManNom(e.target.value)} className={inp} /></label>
+                      <label className="text-xs font-bold">Montant (DT)<input type="number" step="0.5" value={supManMt} onChange={(e) => setSupManMt(e.target.value)} className={inp} /></label>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={saving === 'rapides'}
+                  onClick={() =>
+                    enregistrer(
+                      'rapides',
+                      {
+                        livraisonGratuite: livGratActif ? (livGratMin.trim() ? { min: num(livGratMin) } : {}) : null,
+                        supplement: {
+                          manuel: { actif: supManActif, nom: supManNom.trim() || 'Pluie / Rush', montant: num(supManMt, 1) },
+                          nuit: { actif: supNuitActif, de: supNuitDe, a: supNuitA, montant: num(supNuitMt, 1) },
+                        },
+                      },
+                      'Livraison gratuite et supplément',
+                    )
+                  }
+                  className="h-10 self-start rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
                 >
                   Enregistrer
                 </button>
               </div>
-            </label>
-          </div>
+            </section>
 
-          <div className="mt-3 flex items-center gap-3">
-            {logoUrl ? (
-              <img src={logoUrl} alt="Logo du site" className="h-16 w-16 rounded-2xl border border-black/10 object-cover" />
-            ) : (
-              <div className="grid h-16 w-16 place-items-center rounded-2xl bg-primary/10 text-2xl font-extrabold text-primary">🛵</div>
-            )}
-            <div className="flex flex-1 flex-col gap-2">
-              <div className="flex flex-wrap gap-2">
-                <label className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-xl bg-ink px-3.5 text-xs font-extrabold text-white hover:opacity-90">
-                  <span>{uploadingLogo ? 'Envoi…' : '📤 Importer un logo'}</span>
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    disabled={uploadingLogo}
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) uploaderLogo(f);
-                      e.target.value = '';
-                    }}
-                  />
+            <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+              <h3 className="m-0 text-base font-extrabold">🎁 Parrainage &amp; 💳 Paiements</h3>
+              <div className="mt-3 rounded-2xl bg-[#f6f7fb] p-3">
+                <label className="flex items-center gap-2 text-xs font-extrabold">
+                  <input type="checkbox" checked={parrActif} onChange={(e) => setParrActif(e.target.checked)} className="h-4 w-4 accent-primary" />
+                  Programme de parrainage client actif
                 </label>
-                {logoUrl && (
-                  <button
-                    type="button"
-                    onClick={() => { setLogoUrl(''); enregistrer('logo', { logoUrl: null }, 'Logo par défaut remis'); }}
-                    className="h-10 rounded-xl border border-black/10 px-3 text-xs font-bold text-red-700"
-                  >
-                    Logo par défaut
-                  </button>
+                {parrActif && (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="text-xs font-bold">Gain parrain (DT)<input type="number" step="0.5" min="0" max="50" value={parrParrain} onChange={(e) => setParrParrain(e.target.value)} className={inp} /></label>
+                    <label className="text-xs font-bold">Gain filleul (DT)<input type="number" step="0.5" min="0" max="50" value={parrFilleul} onChange={(e) => setParrFilleul(e.target.value)} className={inp} /></label>
+                  </div>
                 )}
               </div>
-              <div className="flex gap-1.5">
-                <input
-                  value={logoUrl}
-                  onChange={(e) => setLogoUrl(e.target.value)}
-                  placeholder="Ou coller une URL https://…"
-                  className="h-9 flex-1 rounded-xl border border-black/10 px-3 text-xs"
-                />
-                <button
-                  type="button"
-                  disabled={saving === 'logo'}
-                  onClick={() => enregistrer('logo', { logoUrl: logoUrl.trim() || null }, 'Logo du site')}
-                  className="h-9 rounded-xl bg-primary px-3 text-xs font-extrabold text-white"
-                >
-                  OK
+              <div className="mt-2.5 rounded-2xl bg-[#f6f7fb] p-3 text-xs font-bold">
+                <label className="flex items-center gap-2"><input type="checkbox" checked readOnly className="h-4 w-4 accent-primary" /> 💵 Espèces à la livraison</label>
+                <label className="mt-1.5 flex items-center gap-2"><input type="checkbox" checked={payFlouci} onChange={(e) => setPayFlouci(e.target.checked)} className="h-4 w-4 accent-primary" /> 📱 Flouci / D17</label>
+                <label className="mt-1.5 flex items-center gap-2"><input type="checkbox" checked={payTpe} onChange={(e) => setPayTpe(e.target.checked)} className="h-4 w-4 accent-primary" /> 💳 Carte bancaire (TPE mobile)</label>
+                {payFlouci && (
+                  <input value={payNumD17} onChange={(e) => setPayNumD17(e.target.value)} placeholder="Numéro / RIB Flouci ou D17" className={inp} />
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={saving === 'app'}
+                onClick={() =>
+                  enregistrer(
+                    'app',
+                    {
+                      parrainage: { actif: parrActif, montantParrain: num(parrParrain, 3), montantFilleul: num(parrFilleul, 3) },
+                      paiements: { especes: true, flouciD17: payFlouci, carteTpe: payTpe, ...(payNumD17.trim() ? { numeroD17: payNumD17.trim() } : {}) },
+                    },
+                    'Parrainage et paiements',
+                  )
+                }
+                className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+              >
+                Enregistrer
+              </button>
+            </section>
+          </div>
+
+          <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+            <h3 className="m-0 text-base font-extrabold">🏷️ Promotions &amp; Codes promo ({promosActuelles.length})</h3>
+            {promosActuelles.length > 0 && (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full border-collapse text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-black/10 text-muted">
+                      <th className="py-2 pr-3">Nom / Code</th>
+                      <th className="py-2 pr-3">Remise</th>
+                      <th className="py-2 pr-3">Resto</th>
+                      <th className="py-2 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {promosActuelles.map((p) => (
+                      <tr key={p.id} className="border-b border-black/5">
+                        <td className="py-2 pr-3 font-extrabold text-ink">{p.code ? `🎟️ ${p.code}` : `🏷️ ${p.nom}`}</td>
+                        <td className="py-2 pr-3">−{p.valeur}{p.type === 'pourcent' ? '%' : ' DT'}{p.min ? ` · dès ${p.min} DT` : ''}</td>
+                        <td className="py-2 pr-3">{p.resto ?? 'Tous'}</td>
+                        <td className="py-2 text-right">
+                          <div className="inline-flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => enregistrer('promo-t', { promos: promosActuelles.map((x) => (x.id === p.id ? { ...x, actif: !x.actif } : x)) }, 'Promo')}
+                              className={`rounded-lg px-2.5 py-1 font-bold ${p.actif ? 'bg-emerald-100 text-emerald-800' : 'bg-black/10 text-muted'}`}
+                            >
+                              {p.actif ? 'Actif' : 'Pause'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => enregistrer('promo-d', { promos: promosActuelles.filter((x) => x.id !== p.id) }, 'Promo supprimée')}
+                              className="rounded-lg bg-red-50 px-2.5 py-1 font-bold text-red-700"
+                            >
+                              Suppr.
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <form onSubmit={ajouterPromo} className="mt-3 grid gap-2.5 rounded-2xl bg-[#f6f7fb] p-3.5 sm:grid-cols-4">
+              <label className="text-xs font-bold">
+                Type
+                <select value={promoForm.estCoupon ? 'coupon' : 'promo'} onChange={(e) => setPromoForm({ ...promoForm, estCoupon: e.target.value === 'coupon' })} className={inp}>
+                  <option value="promo">🏷️ Promo auto</option>
+                  <option value="coupon">🎟️ Code promo</option>
+                </select>
+              </label>
+              {promoForm.estCoupon ? (
+                <label className="text-xs font-bold">Code *<input required value={promoForm.code} onChange={(e) => setPromoForm({ ...promoForm, code: e.target.value.toUpperCase() })} placeholder="BIENVENUE10" className={inp} /></label>
+              ) : (
+                <label className="text-xs font-bold">Nom *<input required value={promoForm.nom} onChange={(e) => setPromoForm({ ...promoForm, nom: e.target.value })} placeholder="Weekend -10%" className={inp} /></label>
+              )}
+              <label className="text-xs font-bold">
+                Remise
+                <div className="mt-1 flex gap-1">
+                  <input type="number" step="0.5" value={promoForm.valeur} onChange={(e) => setPromoForm({ ...promoForm, valeur: e.target.value })} className="w-20 rounded-xl border border-black/10 bg-white px-2.5 py-2 text-sm" />
+                  <select value={promoForm.type} onChange={(e) => setPromoForm({ ...promoForm, type: e.target.value as 'pourcent' | 'montant' })} className="flex-1 rounded-xl border border-black/10 bg-white px-2 py-2 text-sm">
+                    <option value="pourcent">%</option>
+                    <option value="montant">DT</option>
+                  </select>
+                </div>
+              </label>
+              <div className="flex items-end">
+                <button type="submit" disabled={saving === 'promo'} className="h-10 w-full rounded-xl bg-ink px-4 text-xs font-extrabold text-white">
+                  + Ajouter
                 </button>
               </div>
-            </div>
-          </div>
-        </section>
+            </form>
+          </section>
+        </div>
+      )}
 
-        {/* BLOC 2 : PRIX DE LIVRAISON + LIVRAISON GRATUITE + PLUIE */}
-        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-          <h3 className="m-0 text-base font-extrabold">🎁 Parrainage &amp; 💳 Paiements</h3>
-          <p className="m-0 mt-0.5 text-xs text-muted">Configurez les récompenses de parrainage client et les moyens de paiement acceptés.</p>
-
-          <div className="mt-3 rounded-2xl bg-[#f6f7fb] p-3">
-            <label className="flex items-center gap-2 text-xs font-extrabold">
-              <input type="checkbox" checked={parrActif} onChange={(e) => setParrActif(e.target.checked)} className="h-4 w-4 accent-primary" />
-              Programme de parrainage activé (/compte → 🎁 Parrainage)
-            </label>
-            {parrActif && (
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <label className="text-xs font-bold">
-                  Gain parrain (DT)
-                  <input type="number" step="0.5" min="0" max="50" value={parrParrain} onChange={(e) => setParrParrain(e.target.value)} className={inp} />
-                </label>
-                <label className="text-xs font-bold">
-                  Gain filleul (DT)
-                  <input type="number" step="0.5" min="0" max="50" value={parrFilleul} onChange={(e) => setParrFilleul(e.target.value)} className={inp} />
-                </label>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-2.5 rounded-2xl bg-[#f6f7fb] p-3">
-            <p className="m-0 text-xs font-extrabold text-ink">Moyens de paiement acceptés</p>
-            <div className="mt-2 flex flex-col gap-1.5 text-xs font-bold">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked readOnly className="h-4 w-4 accent-primary" />
-                💵 Espèces à la livraison (toujours actif)
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={payFlouci} onChange={(e) => setPayFlouci(e.target.checked)} className="h-4 w-4 accent-primary" />
-                📱 Flouci / D17 (virement instantané)
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={payTpe} onChange={(e) => setPayTpe(e.target.checked)} className="h-4 w-4 accent-primary" />
-                💳 Carte bancaire (TPE mobile du livreur)
-              </label>
-            </div>
-            {payFlouci && (
-              <label className="mt-2 block text-xs font-bold">
-                Numéro / RIB Flouci ou D17 affiché au client
-                <input value={payNumD17} onChange={(e) => setPayNumD17(e.target.value)} placeholder="Ex. 22 123 456" className={inp} />
-              </label>
-            )}
-          </div>
-
-          <button
-            type="button"
-            disabled={saving === 'app'}
-            onClick={() =>
-              enregistrer(
-                'app',
-                {
-                  parrainage: {
-                    actif: parrActif,
-                    montantParrain: num(parrParrain, 3),
-                    montantFilleul: num(parrFilleul, 3),
-                  },
-                  paiements: {
-                    especes: true,
-                    flouciD17: payFlouci,
-                    carteTpe: payTpe,
-                    ...(payNumD17.trim() ? { numeroD17: payNumD17.trim() } : {}),
-                  },
-                },
-                'Parrainage et paiements',
-              )
-            }
-            className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
-          >
-            Enregistrer parrainage &amp; paiements
-          </button>
-        </section>
-
-        {/* BLOC 2B : PRIX DE LIVRAISON + LIVRAISON GRATUITE + PLUIE */}
-        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-          <h3 className="m-0 text-base font-extrabold">🛵 Prix de la livraison</h3>
-          <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            <label className="text-xs font-bold">Départ (DT)<input type="number" step="0.1" value={frais.base} onChange={(e) => setFrais({ ...frais, base: e.target.value })} className={inp} /></label>
-            <label className="text-xs font-bold">Par km (DT)<input type="number" step="0.1" value={frais.parKm} onChange={(e) => setFrais({ ...frais, parKm: e.target.value })} className={inp} /></label>
-            <label className="text-xs font-bold">Min (DT)<input type="number" step="0.1" value={frais.min} onChange={(e) => setFrais({ ...frais, min: e.target.value })} className={inp} /></label>
-            <label className="text-xs font-bold">Max (DT)<input type="number" step="0.1" value={frais.max} onChange={(e) => setFrais({ ...frais, max: e.target.value })} className={inp} /></label>
-            <label className="text-xs font-bold">Distance max (km)<input type="number" step="1" value={frais.rayonMaxKm} onChange={(e) => setFrais({ ...frais, rayonMaxKm: e.target.value })} className={inp} /></label>
-          </div>
-          <button
-            type="button"
-            disabled={saving === 'frais'}
-            onClick={() =>
-              enregistrer(
-                'frais',
-                { frais: { base: num(frais.base, 1), parKm: num(frais.parKm, 0.5), min: num(frais.min, 1), max: num(frais.max, 12), rayonMaxKm: num(frais.rayonMaxKm, 15) } },
-                'Prix de livraison',
-              )
-            }
-            className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
-          >
-            Enregistrer les prix
-          </button>
-        </section>
-
-        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-          <h3 className="m-0 text-base font-extrabold">🎁 Livraison gratuite & 🌧️ Pluie / Rush</h3>
-          <div className="mt-3 flex flex-col gap-3">
-            <div className="rounded-2xl bg-[#f6f7fb] p-3">
-              <label className="flex items-center gap-2 text-xs font-extrabold">
-                <input type="checkbox" checked={livGratActif} onChange={(e) => setLivGratActif(e.target.checked)} className="h-4 w-4 accent-primary" />
-                Livraison gratuite activée
-              </label>
-              {livGratActif && (
-                <label className="mt-2 block text-xs font-bold">
-                  À partir de (DT, vide = pour tous)
-                  <input type="number" step="1" value={livGratMin} onChange={(e) => setLivGratMin(e.target.value)} placeholder="Ex. 30" className={inp} />
-                </label>
-              )}
-            </div>
-            <div className="rounded-2xl bg-[#f6f7fb] p-3">
-              <label className="flex items-center gap-2 text-xs font-extrabold">
-                <input type="checkbox" checked={supManActif} onChange={(e) => setSupManActif(e.target.checked)} className="h-4 w-4 accent-primary" />
-                Supplément pluie / forte affluence actif
-              </label>
-              {supManActif && (
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <label className="text-xs font-bold">Nom<input value={supManNom} onChange={(e) => setSupManNom(e.target.value)} className={inp} /></label>
-                  <label className="text-xs font-bold">Montant (DT)<input type="number" step="0.5" value={supManMt} onChange={(e) => setSupManMt(e.target.value)} className={inp} /></label>
-                </div>
-              )}
-            </div>
-            <button
-              type="button"
-              disabled={saving === 'rapides'}
-              onClick={() =>
-                enregistrer(
-                  'rapides',
-                  {
-                    livraisonGratuite: livGratActif ? (livGratMin.trim() ? { min: num(livGratMin) } : {}) : null,
-                    supplement: {
-                      manuel: { actif: supManActif, nom: supManNom.trim() || 'Pluie / Rush', montant: num(supManMt, 1) },
-                      nuit: { actif: supNuitActif, de: supNuitDe, a: supNuitA, montant: num(supNuitMt, 1) },
-                    },
-                  },
-                  'Livraison gratuite et supplément',
-                )
-              }
-              className="h-10 self-start rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
-            >
-              Enregistrer
-            </button>
-          </div>
-        </section>
-      </div>
-
-      {/* BLOC 3 : PROMOS & CODES PROMO */}
-      <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-        <h3 className="m-0 text-base font-extrabold">🏷️ Promotions & Codes promo ({promosActuelles.length})</h3>
-        {promosActuelles.length > 0 && (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-b border-black/10 text-muted">
-                  <th className="py-2 pr-3">Nom / Code</th>
-                  <th className="py-2 pr-3">Remise</th>
-                  <th className="py-2 pr-3">Resto</th>
-                  <th className="py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {promosActuelles.map((p) => (
-                  <tr key={p.id} className="border-b border-black/5">
-                    <td className="py-2 pr-3 font-extrabold text-ink">{p.code ? `🎟️ ${p.code}` : `🏷️ ${p.nom}`}</td>
-                    <td className="py-2 pr-3">−{p.valeur}{p.type === 'pourcent' ? '%' : ' DT'}{p.min ? ` · dès ${p.min} DT` : ''}</td>
-                    <td className="py-2 pr-3">{p.resto ?? 'Tous'}</td>
-                    <td className="py-2 text-right">
-                      <div className="inline-flex gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => enregistrer('promo-t', { promos: promosActuelles.map((x) => (x.id === p.id ? { ...x, actif: !x.actif } : x)) }, 'Promo')}
-                          className={`rounded-lg px-2.5 py-1 font-bold ${p.actif ? 'bg-emerald-100 text-emerald-800' : 'bg-black/10 text-muted'}`}
-                        >
-                          {p.actif ? 'Actif' : 'Pause'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => enregistrer('promo-d', { promos: promosActuelles.filter((x) => x.id !== p.id) }, 'Promo supprimée')}
-                          className="rounded-lg bg-red-50 px-2.5 py-1 font-bold text-red-700"
-                        >
-                          Suppr.
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <form onSubmit={ajouterPromo} className="mt-3 grid gap-2.5 rounded-2xl bg-[#f6f7fb] p-3.5 sm:grid-cols-4">
-          <label className="text-xs font-bold">
-            Type
-            <select value={promoForm.estCoupon ? 'coupon' : 'promo'} onChange={(e) => setPromoForm({ ...promoForm, estCoupon: e.target.value === 'coupon' })} className={inp}>
-              <option value="promo">🏷️ Promo automatique</option>
-              <option value="coupon">🎟️ Code promo</option>
-            </select>
-          </label>
-          {promoForm.estCoupon ? (
-            <label className="text-xs font-bold">Code *<input required value={promoForm.code} onChange={(e) => setPromoForm({ ...promoForm, code: e.target.value.toUpperCase() })} placeholder="BIENVENUE10" className={inp} /></label>
-          ) : (
-            <label className="text-xs font-bold">Nom *<input required value={promoForm.nom} onChange={(e) => setPromoForm({ ...promoForm, nom: e.target.value })} placeholder="Weekend -10%" className={inp} /></label>
-          )}
-          <label className="text-xs font-bold">
-            Remise
-            <div className="mt-1 flex gap-1">
-              <input type="number" step="0.5" value={promoForm.valeur} onChange={(e) => setPromoForm({ ...promoForm, valeur: e.target.value })} className="w-20 rounded-xl border border-black/10 bg-white px-2.5 py-2 text-sm" />
-              <select value={promoForm.type} onChange={(e) => setPromoForm({ ...promoForm, type: e.target.value as 'pourcent' | 'montant' })} className="flex-1 rounded-xl border border-black/10 bg-white px-2 py-2 text-sm">
-                <option value="pourcent">%</option>
-                <option value="montant">DT</option>
-              </select>
-            </div>
-          </label>
-          <div className="flex items-end">
-            <button type="submit" disabled={saving === 'promo'} className="h-10 w-full rounded-xl bg-ink px-4 text-xs font-extrabold text-white">
-              + Ajouter
-            </button>
-          </div>
-        </form>
-      </section>
-
-      {/* BLOC 4 : OPTIONS AVANCÉES (repliées par défaut pour garder l'écran simple !) */}
-      <details className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-        <summary className="cursor-pointer text-sm font-extrabold text-ink">
-          🔧 Options avancées (Colis, Frais de service, Nuit, Minimum, Pourboires, Commissions restos)
-        </summary>
-        <div className="mt-4 flex flex-col gap-5">
-          {/* Colis */}
-          <div className="rounded-2xl bg-[#f6f7fb] p-4">
+      {/* ONGLET 4 : COLIS & OPTIONS */}
+      {section === 'options' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="m-0 text-sm font-extrabold">📦 Tarif des colis</h4>
+              <h3 className="m-0 text-base font-extrabold">📦 Service Colis</h3>
               <label className="flex items-center gap-2 text-xs font-extrabold">
                 <input type="checkbox" checked={colis.actif} onChange={(e) => setColis({ ...colis, actif: e.target.checked })} className="h-4 w-4 accent-primary" />
-                Colis activés
+                Activé
               </label>
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               <label className="text-xs font-bold">Départ<input type="number" step="0.5" value={colis.base} onChange={(e) => setColis({ ...colis, base: e.target.value })} className={inp} /></label>
               <label className="text-xs font-bold">Par km<input type="number" step="0.1" value={colis.parKm} onChange={(e) => setColis({ ...colis, parKm: e.target.value })} className={inp} /></label>
               <label className="text-xs font-bold">Min DT<input type="number" step="0.5" value={colis.min} onChange={(e) => setColis({ ...colis, min: e.target.value })} className={inp} /></label>
@@ -787,129 +904,51 @@ export default function ReglagesPanel({
                   'Tarif colis',
                 )
               }
-              className="mt-3 h-9 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+              className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
             >
               Enregistrer colis
             </button>
-          </div>
+          </section>
 
-          {/* Frais de service + Nuit + Minimum + Pourboires */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl bg-[#f6f7fb] p-4">
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 text-xs font-extrabold">
-                  <input type="checkbox" checked={fsActif} onChange={(e) => setFsActif(e.target.checked)} className="h-4 w-4 accent-primary" />
-                  Frais de service (% panier)
-                </label>
-                <button type="button" onClick={() => { setFsActif(true); setFsPct('8'); setFsMin('0.8'); setFsMax('5'); }} className="text-[11px] font-bold text-primary underline">
-                  Standard (8%)
-                </button>
-              </div>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                <label className="text-xs font-bold">%<input type="number" step="0.5" value={fsPct} onChange={(e) => setFsPct(e.target.value)} className={inp} /></label>
-                <label className="text-xs font-bold">Min<input type="number" step="0.1" value={fsMin} onChange={(e) => setFsMin(e.target.value)} className={inp} /></label>
-                <label className="text-xs font-bold">Max<input type="number" step="0.5" value={fsMax} onChange={(e) => setFsMax(e.target.value)} className={inp} /></label>
-              </div>
-              <button
-                type="button"
-                onClick={() => enregistrer('fs', { fraisService: fsActif ? { pourcent: num(fsPct, 8), min: num(fsMin, 0.8), max: num(fsMax, 5) } : null }, 'Frais de service')}
-                className="mt-2.5 h-9 rounded-xl bg-primary px-3.5 text-xs font-extrabold text-white"
-              >
-                Enregistrer
-              </button>
+          <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+            <h3 className="m-0 text-base font-extrabold">🌙 Nuit, Minimum &amp; Pourboires</h3>
+            <label className="mt-3 flex items-center gap-2 text-xs font-extrabold">
+              <input type="checkbox" checked={supNuitActif} onChange={(e) => setSupNuitActif(e.target.checked)} className="h-4 w-4 accent-primary" />
+              Supplément nuit automatique
+            </label>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              <label className="text-xs font-bold">De<input type="time" value={supNuitDe} onChange={(e) => setSupNuitDe(e.target.value)} className={inp} /></label>
+              <label className="text-xs font-bold">À<input type="time" value={supNuitA} onChange={(e) => setSupNuitA(e.target.value)} className={inp} /></label>
+              <label className="text-xs font-bold">DT<input type="number" step="0.5" value={supNuitMt} onChange={(e) => setSupNuitMt(e.target.value)} className={inp} /></label>
             </div>
-
-            <div className="rounded-2xl bg-[#f6f7fb] p-4">
-              <label className="flex items-center gap-2 text-xs font-extrabold">
-                <input type="checkbox" checked={supNuitActif} onChange={(e) => setSupNuitActif(e.target.checked)} className="h-4 w-4 accent-primary" />
-                Supplément nuit automatique
-              </label>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                <label className="text-xs font-bold">De<input type="time" value={supNuitDe} onChange={(e) => setSupNuitDe(e.target.value)} className={inp} /></label>
-                <label className="text-xs font-bold">À<input type="time" value={supNuitA} onChange={(e) => setSupNuitA(e.target.value)} className={inp} /></label>
-                <label className="text-xs font-bold">DT<input type="number" step="0.5" value={supNuitMt} onChange={(e) => setSupNuitMt(e.target.value)} className={inp} /></label>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <label className="text-xs font-bold">Cmd min (DT)<input type="number" step="1" value={cmdMin} onChange={(e) => setCmdMin(e.target.value)} placeholder="0" className={inp} /></label>
-                <label className="text-xs font-bold">Pourboires<input value={pourboires} onChange={(e) => setPourboires(e.target.value)} className={inp} /></label>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const listeP = pourboires.split(',').map((s) => num(s, -1)).filter((n) => n > 0 && n <= 50).slice(0, 6);
-                  enregistrer(
-                    'adv',
-                    {
-                      commandeMin: cmdMin.trim() ? num(cmdMin) : null,
-                      ...(listeP.length ? { pourboires: listeP } : {}),
-                      supplement: {
-                        manuel: { actif: supManActif, nom: supManNom.trim() || 'Pluie / Rush', montant: num(supManMt, 1) },
-                        nuit: { actif: supNuitActif, de: supNuitDe, a: supNuitA, montant: num(supNuitMt, 1) },
-                      },
+            <div className="mt-2.5 grid grid-cols-2 gap-2">
+              <label className="text-xs font-bold">Commande min (DT)<input type="number" step="1" value={cmdMin} onChange={(e) => setCmdMin(e.target.value)} placeholder="0" className={inp} /></label>
+              <label className="text-xs font-bold">Pourboires proposés<input value={pourboires} onChange={(e) => setPourboires(e.target.value)} className={inp} /></label>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const listeP = pourboires.split(',').map((s) => num(s, -1)).filter((n) => n > 0 && n <= 50).slice(0, 6);
+                enregistrer(
+                  'adv',
+                  {
+                    commandeMin: cmdMin.trim() ? num(cmdMin) : null,
+                    ...(listeP.length ? { pourboires: listeP } : {}),
+                    supplement: {
+                      manuel: { actif: supManActif, nom: supManNom.trim() || 'Pluie / Rush', montant: num(supManMt, 1) },
+                      nuit: { actif: supNuitActif, de: supNuitDe, a: supNuitA, montant: num(supNuitMt, 1) },
                     },
-                    'Options avancées',
-                  );
-                }}
-                className="mt-2.5 h-9 rounded-xl bg-primary px-3.5 text-xs font-extrabold text-white"
-              >
-                Enregistrer
-              </button>
-            </div>
-          </div>
-
-          {/* Commission par resto */}
-          <div className="rounded-2xl bg-[#f6f7fb] p-4">
-            <h4 className="m-0 text-sm font-extrabold">📊 Commission sur les restaurants (%)</h4>
-            <div className="mt-2 flex flex-wrap items-end gap-2">
-              <label className="min-w-[180px] flex-1 text-xs font-bold">
-                Restaurant
-                <select value={commResto} onChange={(e) => setCommResto(e.target.value)} className={inp}>
-                  <option value="">Choisir un restaurant…</option>
-                  {restos.map((r) => (
-                    <option key={r.slug} value={r.slug}>{r.nom}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="w-24 text-xs font-bold">%<input type="number" min="0" max="50" value={commPct} onChange={(e) => setCommPct(e.target.value)} className={inp} /></label>
-              <button
-                type="button"
-                disabled={!commResto}
-                onClick={() => {
-                  const pct = num(commPct, 0);
-                  const next = { ...commissionsRestos };
-                  if (pct > 0) next[commResto] = pct;
-                  else delete next[commResto];
-                  enregistrer('comm', { commission: Object.keys(next).length ? { restos: next } : {} }, 'Commission restaurant');
-                  setCommResto('');
-                }}
-                className="h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white disabled:opacity-40"
-              >
-                Ajouter
-              </button>
-            </div>
-            {Object.keys(commissionsRestos).length > 0 && (
-              <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {Object.entries(commissionsRestos).map(([slug, pct]) => (
-                  <span key={slug} className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-extrabold text-amber-900">
-                    {slug} : {pct}%
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = { ...commissionsRestos };
-                        delete next[slug];
-                        enregistrer('comm', { commission: Object.keys(next).length ? { restos: next } : {} }, 'Commission retirée');
-                      }}
-                      className="text-red-700"
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+                  },
+                  'Options nuit et pourboires',
+                );
+              }}
+              className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+            >
+              Enregistrer
+            </button>
+          </section>
         </div>
-      </details>
+      )}
     </div>
   );
 }

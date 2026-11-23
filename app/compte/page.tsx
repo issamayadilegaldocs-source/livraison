@@ -331,10 +331,12 @@ export default function PageCompte() {
   const [adresse, setAdresse] = useState('');
   const [optIn, setOptIn] = useState(true);
 
-  // Suivi invité
+  // Suivi invité & OAuth rapide
   const [suiviRef, setSuiviRef] = useState('');
   const [suiviTel, setSuiviTel] = useState('');
   const [cmdSuivi, setCmdSuivi] = useState<Commande | null>(null);
+  const [googleActif, setGoogleActif] = useState(false);
+  const [magicEmail, setMagicEmail] = useState('');
 
   const chargerCommandes = useCallback(async () => {
     const res = await fetch('/api/compte/commandes', { credentials: 'same-origin' });
@@ -353,10 +355,37 @@ export default function PageCompte() {
       setOngletAuth('suivi');
     }
 
-    fetch('/api/auth/me', { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : { user: null }))
+    // Détecter si Google OAuth est activé côté Supabase
+    fetch('/api/auth/providers')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) setGoogleActif(Boolean(d.google));
+      })
+      .catch(() => {});
+
+    // Finaliser un retour OAuth Google ou Lien Magique (#access_token=...)
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const accessToken = hashParams.get('access_token');
+    const init = accessToken
+      ? fetch('/api/auth/oauth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ access_token: accessToken }),
+        })
+          .then((r) => (r.ok ? r.json() : { user: null }))
+          .finally(() => {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          })
+      : fetch('/api/auth/me', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { user: null }));
+
+    init
       .then((d) => {
         if (d?.user) {
+          if (accessToken && (d.user.role === 'admin' || d.user.role === 'livreur')) {
+            window.location.href = '/admin';
+            return;
+          }
           setUser(d.user);
           setNom(d.user.nom ?? '');
           setTel(d.user.telephone ? d.user.telephone.replace(/^216/, '') : '');
@@ -485,6 +514,29 @@ export default function PageCompte() {
     window.location.reload();
   }
 
+  async function envoyerLienMagique(e: React.FormEvent) {
+    e.preventDefault();
+    if (!magicEmail.trim()) return;
+    setErreur('');
+    setMsg('');
+    setEnvoi(true);
+    try {
+      const res = await fetch('/api/auth/magic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: magicEmail.trim() }),
+      });
+      const d = await res.json().catch(() => null);
+      if (!res.ok) return setErreur(d?.erreur ?? 'Envoi impossible.');
+      setMsg(d?.message ?? 'Lien de connexion envoyé par email !');
+      setMagicEmail('');
+    } catch {
+      setErreur('Erreur réseau.');
+    } finally {
+      setEnvoi(false);
+    }
+  }
+
   async function chercherSuivi(e: React.FormEvent) {
     e.preventDefault();
     setErreur('');
@@ -545,6 +597,58 @@ export default function PageCompte() {
 
         {erreur && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{erreur}</p>}
         {msg && <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{msg}</p>}
+
+        {(ongletAuth === 'login' || ongletAuth === 'register') && (
+          <div className="mt-4 flex flex-col gap-3 rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
+            <p className="m-0 text-xs font-extrabold uppercase tracking-wide text-muted">⚡ Connexion rapide (1 clic)</p>
+            {googleActif ? (
+              <a
+                href="/api/auth/google"
+                className="flex h-12 w-full items-center justify-center gap-2.5 rounded-2xl border border-black/15 bg-white text-sm font-extrabold text-ink shadow-sm transition hover:bg-[#f6f7fb]"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.54-5.17 3.54-8.87z" />
+                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.12 0-5.77-2.11-6.72-4.96H1.29v3.1A12 12 0 0 0 12 24z" />
+                  <path fill="#FBBC05" d="M5.28 14.28A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.56.38-2.28v-3.1H1.29A12 12 0 0 0 0 12c0 1.94.46 3.77 1.29 5.38l3.99-3.1z" />
+                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.29 6.62l3.99 3.1c.95-2.85 3.6-4.97 6.72-4.97z" />
+                </svg>
+                Continuer avec Google
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setMsg('Astuce : activez Google dans Supabase → Auth → Providers → Google pour activer ce bouton instantanément. En attendant, utilisez le lien magique 1 clic ci-dessous !')}
+                className="flex h-12 w-full items-center justify-center gap-2.5 rounded-2xl border border-black/15 bg-white text-sm font-extrabold text-ink shadow-sm hover:bg-[#f6f7fb]"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.54-5.17 3.54-8.87z" />
+                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.12 0-5.77-2.11-6.72-4.96H1.29v3.1A12 12 0 0 0 12 24z" />
+                  <path fill="#FBBC05" d="M5.28 14.28A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.56.38-2.28v-3.1H1.29A12 12 0 0 0 0 12c0 1.94.46 3.77 1.29 5.38l3.99-3.1z" />
+                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.29 6.62l3.99 3.1c.95-2.85 3.6-4.97 6.72-4.97z" />
+                </svg>
+                Continuer avec Google
+              </button>
+            )}
+
+            <form onSubmit={envoyerLienMagique} className="flex gap-1.5">
+              <input
+                type="email"
+                required
+                value={magicEmail}
+                onChange={(e) => setMagicEmail(e.target.value)}
+                placeholder="Votre email → lien 1 clic sans mot de passe"
+                className="h-11 flex-1 rounded-xl border border-black/10 bg-[#f6f7fb] px-3 text-xs font-semibold outline-none focus:border-primary sm:text-sm"
+              />
+              <button
+                type="submit"
+                disabled={envoi}
+                className="h-11 shrink-0 rounded-xl bg-ink px-3.5 text-xs font-extrabold text-white disabled:opacity-50"
+              >
+                ⚡ 1 clic
+              </button>
+            </form>
+          </div>
+        )}
 
         {ongletAuth === 'login' && (
           <form onSubmit={connexion} className="mt-4 flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm">

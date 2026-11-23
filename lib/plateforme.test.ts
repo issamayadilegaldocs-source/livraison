@@ -4,6 +4,7 @@ import {
   enregistrerClientCRM,
   fusionnerDonneesResto,
   gererAdmin,
+  gererAuth,
   lireTokenSession,
   majPositionLivreur,
   slugifier,
@@ -458,5 +459,45 @@ describe('gererAdmin & suiviPublic', () => {
     expect(dResto.texteResto).toContain('2× Makloub Escalope');
     expect(dResto.texteResto).not.toContain('21622999888');
     expect(dResto.texteResto).not.toContain('Rue Secrete');
+  });
+
+  it('Google OAuth & providers : redirection 302 et création profil client via POST /api/auth/oauth', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/auth/v1/settings')) return Response.json({ external: { google: true } });
+      if (url.includes('/auth/v1/user')) {
+        return Response.json({
+          id: 'u-google-1',
+          email: 'google.user@gmail.com',
+          app_metadata: {},
+          user_metadata: { full_name: 'Nadia Ben Ali' },
+        });
+      }
+      if (url.includes('/rest/v1/profiles')) return Response.json([]);
+      return Response.json([]);
+    });
+
+    const rProv = await gererAuth(new Request('https://site.test/api/auth/providers'), ENV_SB, 'providers');
+    expect(rProv.status).toBe(200);
+    expect(await rProv.json()).toEqual({ google: true, magic: true });
+
+    const rGoog = await gererAuth(new Request('https://site.test/api/auth/google'), ENV_SB, 'google');
+    expect(rGoog.status).toBe(302);
+    expect(rGoog.headers.get('location')).toContain('provider=google');
+
+    const rOauth = await gererAuth(
+      new Request('https://site.test/api/auth/oauth', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.valid.token' }),
+      }),
+      ENV_SB,
+      'oauth',
+    );
+    expect(rOauth.status).toBe(200);
+    expect(rOauth.headers.get('set-cookie')).toContain('liv_session=');
+    const d = await rOauth.json();
+    expect(d.user.role).toBe('client');
+    expect(d.user.nom).toBe('Nadia Ben Ali');
   });
 });
