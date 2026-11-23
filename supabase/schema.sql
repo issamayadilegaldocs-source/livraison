@@ -331,3 +331,6 @@ create table if not exists public.parrainages (
 );
 create index if not exists parrainages_parrain_idx on public.parrainages(parrain_user_id, created_at desc);
 alter table public.parrainages enable row level security;
+
+revoke all on public.avis_restaurants, public.chat_commandes, public.tickets_support, public.tickets_messages, public.parrainages from anon, authenticated;
+grant select, insert, update, delete on public.avis_restaurants, public.chat_commandes, public.tickets_support, public.tickets_messages, public.parrainages to service_role;
