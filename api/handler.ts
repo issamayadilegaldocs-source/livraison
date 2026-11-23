@@ -1,5 +1,4 @@
-// Vercel Function : route /api/* vers la même logique que functions/api/* (Cloudflare Pages), via lib/serveur.ts,
-// et vers les routes comptes / suivi / CRM / admin / restaurants live (lib/plateforme.ts).
+// Vercel Function unique : route tout /api/* (via rewrite dans vercel.json) vers lib/serveur.ts et lib/plateforme.ts.
 // Le site reste un export statique (out/) ; seul /api/* tourne ici. Config du livreur : .build/livreur.json (écrit par `npm run build`).
 import livreur from '../.build/livreur.json';
 import type { Livreur } from '../lib/livreur';
@@ -12,8 +11,6 @@ import {
 } from '../lib/plateforme';
 
 const L = livreur as Livreur;
-// Pas de binding Cloudflare ici : le stockage est Supabase (SUPABASE_URL + SUPABASE_SECRET_KEY) ; les fichiers
-// statiques (commande-data, restos.json) sont relus sur le site lui-même (équivalent de env.ASSETS).
 const env = process.env as unknown as Env;
 
 /** GET d'un fichier JSON statique du site déployé (même origine que la requête). */
@@ -25,7 +22,12 @@ export const assetJson = async <T>(request: Request, chemin: string): Promise<T 
 const NON = (allow: string) => new Response('Method Not Allowed', { status: 405, headers: { Allow: allow } });
 
 export async function route(request: Request): Promise<Response> {
-  const [, , nom = '', id = ''] = new URL(request.url).pathname.split('/'); // /api/<nom>[/<id>]
+  const u = new URL(request.url);
+  const rewritten = u.searchParams.get('__path');
+  const segments = rewritten
+    ? rewritten.split('/').filter(Boolean)
+    : u.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
+  const [nom = '', id = ''] = segments;
   const m = request.method;
   switch (nom) {
     case 'auth': return gererAuth(request, env, id);
