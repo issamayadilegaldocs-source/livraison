@@ -67,7 +67,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <BandeauLivreur service={l.service} />
         <BandePromo livraisonGratuite={l.livraisonGratuite ?? null} promos={(l.promos ?? []).filter((p) => p.actif && !p.code).map(vueClient)} />
         <main className="mx-auto max-w-6xl pb-28 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">{children}</main>
-        <footer className="border-t border-black/5 bg-white pt-8 pb-[max(5.5rem,env(safe-area-inset-bottom))] text-center text-sm text-muted lg:pb-[max(2rem,env(safe-area-inset-bottom))]">
+        <footer className="border-t border-black/5 bg-white pt-8 pb-[max(6rem,env(safe-area-inset-bottom))] text-center text-sm text-muted">
           <p className="font-bold text-ink"><NomSiteDynamique nomDefaut={l.nom} /></p>
           <p className="mt-1">
             <T k="Livraison selon la distance · Paiement à la livraison · {ville}" v={{ ville: l.ville }} />
