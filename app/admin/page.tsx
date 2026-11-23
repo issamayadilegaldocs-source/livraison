@@ -1,14 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import Link from '@/app/components/Lien';
 import type { BilanLivreur, ClientCRM, CommandeSuivi, LivreurGestion, ProfilUtilisateur, RestaurantGestion, StatutCommande } from '@/lib/plateforme';
-import type { Config } from '@/lib/config';
+import type { Config, Majoration } from '@/lib/config';
 import type { Promo } from '@/lib/commission';
 import ClientsPanel from './ClientsPanel';
 import LivreursPanel from './LivreursPanel';
 import RestaurantsPanel from './RestaurantsPanel';
 import ReglagesPanel from './ReglagesPanel';
+import type { PointTracking } from './CarteTracking';
+
+const CarteTracking = dynamic(() => import('./CarteTracking'), { ssr: false });
 
 type Stats = {
   totalCommandes: number;
@@ -58,6 +62,8 @@ type ReglagesApi = {
     } | null;
     annonce: string | null;
     pourboires: number[];
+    majoration?: Majoration;
+    logoUrl?: string | null;
   };
   pauseActive: boolean;
 };
@@ -120,6 +126,110 @@ export default function PageAdmin() {
   const [majId, setMajId] = useState<string | null>(null);
   const [switchBusy, setSwitchBusy] = useState<string | null>(null);
   const [notifBanner, setNotifBanner] = useState<{ texte: string; whatsappUrl?: string } | null>(null);
+
+  // Partage GPS temps réel du livreur / admin + suivi carte équipe
+  const [gpsActif, setGpsActif] = useState(false);
+  const [gpsErreur, setGpsErreur] = useState('');
+  const watchIdRef = useRef<number | null>(null);
+  const lastPingRef = useRef<number>(0);
+  const [trackingLivreurs, setTrackingLivreurs] = useState<
+    (LivreurGestion & { commandesEnCours?: { ref: string; titre: string; statut: string }[] })[]
+  >([]);
+
+  const chargerTracking = useCallback(async () => {
+    const r = await fetch('/api/admin/tracking', { credentials: 'same-origin' }).catch(() => null);
+    if (r && r.ok) {
+      const d = await r.json();
+      setTrackingLivreurs(d.livreurs ?? []);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user || user.role !== 'admin' || onglet !== 'livreurs') return;
+    chargerTracking();
+    const id = setInterval(() => {
+      if (!document.hidden) chargerTracking();
+    }, 10000);
+    return () => clearInterval(id);
+  }, [user, onglet, chargerTracking]);
+
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
+
+  function basculerGps() {
+    setGpsErreur('');
+    if (gpsActif) {
+      if (watchIdRef.current !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+      setGpsActif(false);
+      return;
+    }
+    if (!navigator.geolocation) {
+      setGpsErreur('GPS non disponible sur cet appareil.');
+      return;
+    }
+    setGpsActif(true);
+    lastPingRef.current = 0;
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const now = Date.now();
+        if (now - lastPingRef.current < 8000) return;
+        lastPingRef.current = now;
+        fetch('/api/livreur/position', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        })
+          .then(() => {
+            if (user?.role === 'admin' && onglet === 'livreurs') chargerTracking();
+          })
+          .catch(() => {});
+      },
+      () => {
+        setGpsErreur('Autorisez la localisation GPS dans le navigateur.');
+        setGpsActif(false);
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+    );
+  }
+
+  async function informerResto(c: CommandeSuivi, canal: 'whatsapp' | 'email') {
+    setMajId(c.id);
+    setNotifBanner(null);
+    try {
+      const res = await fetch('/api/admin/notifier-resto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ commande_id: c.id, canal }),
+      });
+      const d = await res.json().catch(() => null);
+      if (!res.ok) {
+        setNotifBanner({ texte: `❌ ${d?.erreur ?? 'Impossible de notifier le restaurant.'}` });
+        return;
+      }
+      if (canal === 'whatsapp') {
+        if (d.whatsappUrl) {
+          window.open(d.whatsappUrl, '_blank', 'noopener,noreferrer');
+          setNotifBanner({ texte: `✓ Message WhatsApp prêt pour ${c.titre} (commande N° ${c.ref})`, whatsappUrl: d.whatsappUrl });
+        } else {
+          if (navigator.clipboard && d.texteResto) await navigator.clipboard.writeText(d.texteResto).catch(() => {});
+          setNotifBanner({ texte: `ℹ️ Aucun numéro enregistré pour ${c.titre}. Le texte de préparation a été copié dans le presse-papier !` });
+        }
+      } else {
+        setNotifBanner({ texte: `✓ Email de préparation envoyé à ${c.titre} (statut : ${d.emailStatut ?? 'ok'}).` });
+      }
+      if (user) await chargerTout(user.role);
+    } finally {
+      setMajId(null);
+    }
+  }
 
   // Détection auto PC vs Téléphone + préférence sauvegardée
   useEffect(() => {
@@ -374,6 +484,13 @@ export default function PageAdmin() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={basculerGps}
+            className={`h-9 rounded-xl px-3 text-xs font-extrabold transition ${gpsActif ? 'bg-emerald-500 text-white shadow-sm' : 'bg-white/15 text-white hover:bg-white/25'}`}
+          >
+            {gpsActif ? '📡 GPS actif' : '📡 Partager GPS'}
+          </button>
           {/* Sélecteur de mode PC / Téléphone */}
           <div className="flex rounded-xl bg-white/10 p-1">
             <button
@@ -403,6 +520,8 @@ export default function PageAdmin() {
           </button>
         </div>
       </div>
+
+      {gpsErreur && <div className="rounded-2xl bg-amber-50 px-4 py-2.5 text-xs font-bold text-amber-900">⚠️ {gpsErreur}</div>}
 
       {/* KPIs en mode PC */}
       {mode === 'pc' && stats && (
@@ -694,6 +813,26 @@ export default function PageAdmin() {
                               <li key={i}>• {l}</li>
                             ))}
                           </ul>
+                          {c.type === 'repas' && (
+                            <div className="mt-2 flex flex-wrap items-center gap-1">
+                              <button type="button" disabled={busy} onClick={() => informerResto(c, 'whatsapp')} className="rounded-lg bg-[#25D366]/15 px-2 py-0.5 text-[10px] font-extrabold text-[#14753d]">
+                                🍽️ WA resto
+                              </button>
+                              <button type="button" disabled={busy} onClick={() => informerResto(c, 'email')} className="rounded-lg border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold text-ink">
+                                📧 Email resto
+                              </button>
+                              {c.resto_telephone && (
+                                <a href={`tel:${c.resto_telephone}`} className="rounded-lg border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold text-ink">
+                                  📞 Resto
+                                </a>
+                              )}
+                              {c.resto_notifie_at && (
+                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">
+                                  ✅ Resto informé
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 pr-3 max-w-[220px]">
                           <div className="font-extrabold text-ink">{c.client_nom}</div>
@@ -809,7 +948,7 @@ export default function PageAdmin() {
 
                     <div className="mt-2.5 grid grid-cols-2 gap-2">
                       <a href={`tel:+${c.client_telephone}`} className="flex h-11 items-center justify-center rounded-2xl border border-black/10 text-xs font-extrabold text-ink">
-                        📞 Appeler
+                        📞 Appeler client
                       </a>
                       <a
                         href={`https://wa.me/${c.client_telephone}?text=${encodeURIComponent(`Bonjour ${c.client_nom}, concernant votre commande N° ${c.ref} : `)}`}
@@ -817,9 +956,29 @@ export default function PageAdmin() {
                         rel="noreferrer"
                         className="flex h-11 items-center justify-center rounded-2xl bg-[#25D366] text-xs font-extrabold text-white"
                       >
-                        💬 WhatsApp
+                        💬 WA client
                       </a>
                     </div>
+
+                    {c.type === 'repas' && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-2xl bg-amber-50/70 p-2.5">
+                        <span className="text-[11px] font-extrabold text-ink">🍽️ Resto :</span>
+                        <button type="button" disabled={busy} onClick={() => informerResto(c, 'whatsapp')} className="h-8 rounded-xl bg-[#25D366] px-2.5 text-[11px] font-extrabold text-white">
+                          💬 Informer WA
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => informerResto(c, 'email')} className="h-8 rounded-xl border border-black/10 bg-white px-2.5 text-[11px] font-bold text-ink">
+                          📧 Email
+                        </button>
+                        {c.resto_telephone && (
+                          <a href={`tel:${c.resto_telephone}`} className="inline-flex h-8 items-center rounded-xl border border-black/10 bg-white px-2.5 text-[11px] font-bold text-ink">
+                            📞 Appeler
+                          </a>
+                        )}
+                        {c.resto_notifie_at && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">✅ Informé</span>
+                        )}
+                      </div>
+                    )}
 
                     {user.role === 'admin' && (
                       <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-2xl bg-[#f6f7fb] p-2.5">
@@ -884,15 +1043,52 @@ export default function PageAdmin() {
       {/* ONGLET CLIENTS CRM */}
       {onglet === 'clients' && <ClientsPanel clients={clients} campagnes={campagnes} onReload={() => chargerTout(user.role)} mode={mode} />}
 
-      {/* ONGLET LIVREURS & GAINS */}
+      {/* ONGLET LIVREURS & GAINS + CARTE GPS TEMPS RÉEL */}
       {onglet === 'livreurs' && (
-        <LivreursPanel
-          livreurs={livreurs}
-          bilan={bilanLivreurs}
-          totalARecuperer={totalARecuperer}
-          onReload={() => chargerTout(user.role)}
-          mode={mode}
-        />
+        <div className="flex flex-col gap-4">
+          <section className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="m-0 text-base font-extrabold">📍 Tracking GPS temps réel de l’équipe</h2>
+                <p className="m-0 text-xs text-muted">Actualisé toutes les 10s. Chaque livreur active « 📡 Partager GPS » en haut de son écran.</p>
+              </div>
+              <button type="button" onClick={chargerTracking} className="h-9 rounded-xl border border-black/10 px-3 text-xs font-bold">
+                ↻ Actualiser carte
+              </button>
+            </div>
+            {(() => {
+              const pts: PointTracking[] = trackingLivreurs
+                .filter((l) => typeof l.last_lat === 'number' && typeof l.last_lng === 'number')
+                .map((l) => ({
+                  id: l.id,
+                  nom: l.nom,
+                  lat: l.last_lat!,
+                  lng: l.last_lng!,
+                  at: l.last_seen_at ?? undefined,
+                  detail: l.commandesEnCours?.length
+                    ? `${l.commandesEnCours.length} course(s) : ${l.commandesEnCours.map((c) => `N° ${c.ref} (${c.titre})`).join(', ')}`
+                    : l.disponible
+                      ? 'Disponible'
+                      : 'Occupé',
+                }));
+              return pts.length > 0 ? (
+                <CarteTracking points={pts} hauteur={300} />
+              ) : (
+                <div className="rounded-2xl bg-[#f6f7fb] p-6 text-center text-xs font-semibold text-muted">
+                  Aucun livreur ne partage encore sa position GPS. Cliquez sur <b>« 📡 Partager GPS »</b> en haut pour voir votre position apparaître en direct ici !
+                </div>
+              );
+            })()}
+          </section>
+
+          <LivreursPanel
+            livreurs={livreurs}
+            bilan={bilanLivreurs}
+            totalARecuperer={totalARecuperer}
+            onReload={() => chargerTout(user.role)}
+            mode={mode}
+          />
+        </div>
       )}
 
       {/* ONGLET RESTAURANTS */}

@@ -153,6 +153,9 @@ create table if not exists public.livreurs (
   disponible boolean not null default true,
   commission_type text not null default 'fixe',
   commission_valeur numeric(10, 3) not null default 1.000,
+  last_lat double precision,
+  last_lng double precision,
+  last_seen_at timestamptz,
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -194,7 +197,9 @@ alter table public.commandes
   add column if not exists historique_statuts jsonb not null default '[]'::jsonb,
   add column if not exists part_admin numeric(10, 3) not null default 0,
   add column if not exists regle_admin boolean not null default false,
-  add column if not exists regle_admin_at timestamptz;
+  add column if not exists regle_admin_at timestamptz,
+  add column if not exists resto_telephone text,
+  add column if not exists resto_notifie_at timestamptz;
 
 create table if not exists public.restaurants_gestion (
   slug text primary key,
@@ -203,6 +208,7 @@ create table if not exists public.restaurants_gestion (
   nom text,
   adresse text,
   telephone text,
+  email text,
   cuisines text[],
   type_commerce text,
   image text,

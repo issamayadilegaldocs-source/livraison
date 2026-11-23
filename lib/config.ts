@@ -39,6 +39,19 @@ export const FraisSchema = z
 export const CorrectionSchema = z.object({ prix: z.number().positive().max(1000).optional(), resto: z.number().positive().max(1000).optional(), indispo: z.literal(true).optional() });
 export type Correction = z.infer<typeof CorrectionSchema>;
 
+/** Une règle : `montant` DT ajoutés au prix du plat, ou `pourcent` sur le plat et ses suppléments. */
+export const RegleSchema = z.union([
+  z.object({ montant: z.number().positive().max(100) }).strict(),
+  z.object({ pourcent: z.number().positive().max(100) }).strict(),
+]);
+export type Regle = z.infer<typeof RegleSchema>;
+
+/** Règles du plus général au plus précis : la règle du plat l'emporte sur celle du resto, qui l'emporte sur `tous`. */
+export const MajorationSchema = z
+  .object({ tous: RegleSchema.optional(), restos: z.record(z.string(), RegleSchema).optional(), plats: z.record(z.string(), RegleSchema).optional() })
+  .strict();
+export type Majoration = z.infer<typeof MajorationSchema>;
+
 export const ConfigSchema = z.object({
   pause: z.boolean().default(false),
   // Heure de retour annoncée aux clients ; la pause s'arrête toute seule à cette heure.
@@ -61,6 +74,10 @@ export const ConfigSchema = z.object({
   // absent : livreur.json ; objet / liste : ceux-ci (liste vide = plus de promo).
   commission: CommissionSchema.optional(),
   promos: z.array(PromoSchema).max(50).optional(),
+  // absent : livreur.json ; null : aucune majoration ; objet : majoration live (marge livreur).
+  majoration: MajorationSchema.nullable().optional(),
+  // absent : livreur.json ; null : logo générique ; string : URL du logo personnalisé (upload ou lien).
+  logoUrl: z.string().trim().max(500).nullable().optional(),
   // restoSlug → platId → correction
   plats: z.record(z.string(), z.record(z.string(), CorrectionSchema)).default({}),
 });
@@ -83,7 +100,7 @@ export function pauseEnCours(c: Pick<Config, 'pause' | 'retour'>, maintenant: Da
 }
 
 /** Horaires et frais en vigueur : ceux du livreur (page de config) sinon ceux de livreur.json. */
-export function reglages(livreur: Livreur, c: Config): { service: Service | undefined; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; commission: Commission | undefined; promos: Promo[] } {
+export function reglages(livreur: Livreur, c: Config): { service: Service | undefined; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; commission: Commission | undefined; promos: Promo[]; majoration: Majoration | undefined; logoUrl: string | null } {
   return {
     service: c.service === undefined ? livreur.service : (c.service ?? undefined),
     livraison: c.frais ? { ...livreur.livraison, ...c.frais } : livreur.livraison,
@@ -97,23 +114,12 @@ export function reglages(livreur: Livreur, c: Config): { service: Service | unde
     pourboires: c.pourboires ?? POURBOIRES_DEFAUT,
     commission: c.commission ?? livreur.commission,
     promos: (c.promos ?? livreur.promos ?? []).filter((p) => p.actif),
+    majoration: c.majoration === undefined ? livreur.majoration : (c.majoration ?? undefined),
+    logoUrl: c.logoUrl === undefined ? (livreur.logo ?? null) : c.logoUrl,
   };
 }
 
-// --- Majoration (marge du livreur, livreur.json) -------------------------------------------------
-
-/** Une règle : `montant` DT ajoutés au prix du plat, ou `pourcent` sur le plat et ses suppléments. */
-export const RegleSchema = z.union([
-  z.object({ montant: z.number().positive().max(100) }).strict(),
-  z.object({ pourcent: z.number().positive().max(100) }).strict(),
-]);
-export type Regle = z.infer<typeof RegleSchema>;
-
-/** Règles du plus général au plus précis : la règle du plat l'emporte sur celle du resto, qui l'emporte sur `tous`. */
-export const MajorationSchema = z
-  .object({ tous: RegleSchema.optional(), restos: z.record(z.string(), RegleSchema).optional(), plats: z.record(z.string(), RegleSchema).optional() })
-  .strict();
-export type Majoration = z.infer<typeof MajorationSchema>;
+// --- Majoration (marge du livreur) ---------------------------------------------------------------
 
 export function regleDuPlat(m: Majoration | undefined, restoSlug: string, platId: number): Regle | undefined {
   return m?.plats?.[platId] ?? m?.restos?.[restoSlug] ?? m?.tous;

@@ -36,6 +36,7 @@ export default function RestaurantsPanel({
     nom: string;
     adresse: string;
     telephone: string;
+    email: string;
     cuisines: string;
     type_commerce: string;
     delai: string;
@@ -48,7 +49,36 @@ export default function RestaurantsPanel({
   const [menuStatique, setMenuStatique] = useState<PlatMenu[]>([]);
   const [nouveauPlat, setNouveauPlat] = useState({ nom: '', prix: '', categorie: 'Spécialités', description: '' });
   const [envoi, setEnvoi] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState('');
+
+  async function uploaderPhoto(file: File) {
+    if (!edite) return;
+    setUploading(true);
+    setMsg('');
+    try {
+      const dataUrl = await new Promise<string>((ok, ko) => {
+        const rd = new FileReader();
+        rd.onload = () => ok(String(rd.result ?? ''));
+        rd.onerror = ko;
+        rd.readAsDataURL(file);
+      });
+      const res = await fetch('/api/admin/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ dataUrl, dossier: 'restos' }),
+      });
+      const d = await res.json().catch(() => null);
+      if (!res.ok || !d?.url) return setMsg(d?.erreur ?? 'Upload impossible.');
+      setEdite((cur) => (cur ? { ...cur, image: d.url } : cur));
+      setMsg('✓ Photo importée ! Cliquez sur « Enregistrer et publier » pour valider.');
+    } catch {
+      setMsg('Erreur lors de l’envoi de l’image.');
+    } finally {
+      setUploading(false);
+    }
+  }
 
   useEffect(() => {
     fetch('/restos.json')
@@ -92,6 +122,7 @@ export default function RestaurantsPanel({
       nom: g?.nom ?? nomDefaut,
       adresse: g?.adresse ?? '',
       telephone: g?.telephone ?? '',
+      email: g?.email ?? '',
       cuisines: (g?.cuisines ?? []).join(', '),
       type_commerce: g?.type_commerce ?? 'restaurants',
       delai: g?.delai ?? '25-35 min',
@@ -121,6 +152,7 @@ export default function RestaurantsPanel({
       nom: '',
       adresse: 'Centre-ville, Sfax',
       telephone: '',
+      email: '',
       cuisines: 'Tunisienne, Grillades',
       type_commerce: 'restaurants',
       delai: '25-35 min',
@@ -162,6 +194,7 @@ export default function RestaurantsPanel({
           nom: edite.nom,
           adresse: edite.adresse || null,
           telephone: edite.telephone || null,
+          email: edite.email || null,
           cuisines: cuisines.length ? cuisines : null,
           type_commerce: edite.type_commerce,
           delai: edite.delai || null,
@@ -252,8 +285,12 @@ export default function RestaurantsPanel({
               <input value={edite.adresse} onChange={(e) => setEdite({ ...edite, adresse: e.target.value })} className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2.5 text-sm" />
             </label>
             <label className="text-xs font-bold">
-              Téléphone
+              Téléphone / WhatsApp resto
               <input value={edite.telephone} onChange={(e) => setEdite({ ...edite, telephone: e.target.value })} placeholder="74 000 000" className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2.5 text-sm" />
+            </label>
+            <label className="text-xs font-bold">
+              Email resto (optionnel — notifié à chaque commande)
+              <input type="email" value={edite.email} onChange={(e) => setEdite({ ...edite, email: e.target.value })} placeholder="resto@exemple.com" className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2.5 text-sm" />
             </label>
             <label className="text-xs font-bold">
               Cuisines / catégories (virgule)
@@ -263,10 +300,39 @@ export default function RestaurantsPanel({
               Délai estimé
               <input value={edite.delai} onChange={(e) => setEdite({ ...edite, delai: e.target.value })} placeholder="25-35 min" className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2.5 text-sm" />
             </label>
-            <label className="text-xs font-bold sm:col-span-2">
-              URL de photo / couverture (optionnel)
-              <input value={edite.image} onChange={(e) => setEdite({ ...edite, image: e.target.value })} placeholder="https://…" className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2.5 text-sm" />
-            </label>
+            <div className="sm:col-span-2">
+              <span className="text-xs font-bold">Photo / couverture (lien URL ou upload direct)</span>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <input
+                  value={edite.image}
+                  onChange={(e) => setEdite({ ...edite, image: e.target.value })}
+                  placeholder="https://… ou importer une image →"
+                  className="min-w-[200px] flex-1 rounded-xl border border-black/10 px-3 py-2.5 text-sm"
+                />
+                <label className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-xl bg-ink px-3.5 text-xs font-extrabold text-white hover:opacity-90">
+                  <span>{uploading ? 'Envoi…' : '📤 Importer une photo'}</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    disabled={uploading}
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) uploaderPhoto(f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+              {edite.image && (
+                <div className="mt-2 flex items-center gap-3">
+                  <img src={edite.image} alt="" className="h-16 w-24 rounded-xl border border-black/10 object-cover" />
+                  <button type="button" onClick={() => setEdite({ ...edite, image: '' })} className="text-xs font-bold text-red-700 underline">
+                    Retirer la photo
+                  </button>
+                </div>
+              )}
+            </div>
             <label className="flex items-center gap-2 text-xs font-extrabold sm:col-span-2">
               <input type="checkbox" checked={edite.actif} onChange={(e) => setEdite({ ...edite, actif: e.target.checked })} className="h-4 w-4 accent-primary" />
               Restaurant actif et visible sur le site

@@ -69,6 +69,9 @@ export type LivreurGestion = {
   disponible: boolean;
   commission_type: 'fixe' | 'pourcent';
   commission_valeur: number;
+  last_lat?: number | null;
+  last_lng?: number | null;
+  last_seen_at?: string | null;
   notes: string | null;
   created_at?: string;
 };
@@ -113,6 +116,7 @@ export type RestaurantGestion = {
   nom: string | null;
   adresse: string | null;
   telephone: string | null;
+  email?: string | null;
   cuisines: string[] | null;
   type_commerce: string | null;
   image: string | null;
@@ -147,6 +151,9 @@ export type CommandeSuivi = {
   part_admin?: number;
   regle_admin?: boolean;
   regle_admin_at?: string | null;
+  resto_telephone?: string | null;
+  resto_notifie_at?: string | null;
+  livreur_position?: { lat: number; lng: number; at: string } | null;
 };
 
 /** Calcule la part qui revient au livreur Admin sur une commande livrée par un sous-livreur. */
@@ -316,12 +323,12 @@ export async function enregistrerClientCRM(
   }
 }
 
-/** Enrichit la ligne de `commandes` avec user_id, email, resto_slug et l'historique initial des statuts. */
+/** Enrichit la ligne de `commandes` avec user_id, email, resto_slug, resto_telephone et l'historique initial des statuts. */
 export async function enrichirCommandeMeta(
   env: EnvStockage,
   whatsapp: string,
   id: string,
-  meta: { userId?: string | null; clientEmail?: string | null; restoSlug?: string | null; maintenant: Date },
+  meta: { userId?: string | null; clientEmail?: string | null; restoSlug?: string | null; restoTelephone?: string | null; restoNotifieAt?: string | null; maintenant: Date },
 ): Promise<void> {
   const sb = configSupabase(env);
   if (!sb) return;
@@ -335,6 +342,8 @@ export async function enrichirCommandeMeta(
         ...(meta.userId ? { user_id: meta.userId } : {}),
         ...(meta.clientEmail ? { client_email: meta.clientEmail.trim().toLowerCase() } : {}),
         ...(meta.restoSlug ? { resto_slug: meta.restoSlug } : {}),
+        ...(meta.restoTelephone ? { resto_telephone: meta.restoTelephone } : {}),
+        ...(meta.restoNotifieAt ? { resto_notifie_at: meta.restoNotifieAt } : {}),
         statut_updated_at: iso,
         historique_statuts: [{ statut: 'nouvelle', at: iso }],
       }),
@@ -551,11 +560,71 @@ export async function gererCompte(req: Request, env: Env, action: string): Promi
       `commandes?${filtres}&select=id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,client_telephone,client_email,adresse,note,total,resto_slug,livreur_id,livreur_nom,user_id&order=creee.desc&limit=50`,
     );
     if (!res.ok) return err(500, 'Impossible de charger vos commandes.');
-    const commandes = (await res.json()) as CommandeSuivi[];
+    const commandes = await attacherPositionsLivreurs(sb, (await res.json()) as CommandeSuivi[]);
     return json({ commandes });
   }
 
   return err(404, 'Route compte introuvable.');
+}
+
+/** Ajoute `livreur_position` (GPS en direct, < 30 min) uniquement pour les commandes actives en cours. */
+async function attacherPositionsLivreurs<T extends { statut?: string; livreur_id?: string | null; livreur_position?: { lat: number; lng: number; at: string } | null }>(
+  sb: { url: string; cle: string },
+  commandes: T[],
+): Promise<T[]> {
+  const ids = Array.from(
+    new Set(
+      commandes
+        .filter((c) => c.livreur_id && c.statut && c.statut !== 'livree' && c.statut !== 'annulee')
+        .map((c) => c.livreur_id!),
+    ),
+  );
+  if (!ids.length) return commandes;
+  const inList = ids.map((id) => `"${id}"`).join(',');
+  const r = await restFetch(sb, `livreurs?id=in.(${inList})&select=id,last_lat,last_lng,last_seen_at`).catch(() => null);
+  if (!r || !r.ok) return commandes;
+  const rows = (await r.json().catch(() => [])) as { id: string; last_lat: number | null; last_lng: number | null; last_seen_at: string | null }[];
+  const limiteMs = Date.now() - 30 * 60_000;
+  const parId = new Map<string, { lat: number; lng: number; at: string }>();
+  for (const row of rows) {
+    if (typeof row.last_lat === 'number' && typeof row.last_lng === 'number' && row.last_seen_at && new Date(row.last_seen_at).getTime() >= limiteMs) {
+      parId.set(row.id, { lat: row.last_lat, lng: row.last_lng, at: row.last_seen_at });
+    }
+  }
+  return commandes.map((c) => ({
+    ...c,
+    livreur_position: c.livreur_id && c.statut !== 'livree' && c.statut !== 'annulee' ? (parId.get(c.livreur_id) ?? null) : null,
+  }));
+}
+
+/** POST /api/livreur/position : met à jour la position GPS temps réel du livreur / sous-livreur connecté. */
+export async function majPositionLivreur(req: Request, env: Env, livreurDefaut: Livreur): Promise<Response> {
+  const sb = configSupabase(env);
+  if (!sb) return err(503, 'Stockage indisponible.');
+  const user = await verifierUtilisateur(env, req);
+  if (!user || (user.role !== 'admin' && user.role !== 'livreur')) return err(403, 'Accès réservé aux livreurs.');
+  const body = (await req.json().catch(() => null)) as { lat?: unknown; lng?: unknown } | null;
+  const lat = Number(body?.lat);
+  const lng = Number(body?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return err(400, 'Coordonnées GPS invalides.');
+  }
+  let monLiv = await trouverMonLivreur(sb, user);
+  if (!monLiv && user.role === 'admin') {
+    const r = await restFetch(sb, `livreurs?telephone=eq.${enc(livreurDefaut.whatsapp)}&select=*&limit=1`).catch(() => null);
+    const rows = r && r.ok ? ((await r.json().catch(() => [])) as LivreurGestion[]) : [];
+    monLiv = rows[0] ?? null;
+  }
+  if (!monLiv) return err(404, 'Fiche livreur introuvable.');
+  const at = new Date().toISOString();
+  const res = await restFetch(
+    sb,
+    `livreurs?id=eq.${enc(monLiv.id)}`,
+    { method: 'PATCH', body: JSON.stringify({ last_lat: lat, last_lng: lng, last_seen_at: at, updated_at: at }) },
+    { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+  );
+  if (!res.ok) return err(500, 'Impossible de sauvegarder la position.');
+  return json({ ok: true, livreur_id: monLiv.id, lat, lng, at });
 }
 
 /** Suivi public d'une commande pour les clients invités : GET /api/suivi?ref=XXXXXX&tel=22111222 */
@@ -570,12 +639,13 @@ export async function suiviPublic(req: Request, env: Env): Promise<Response> {
   }
   const res = await restFetch(
     sb,
-    `commandes?ref=eq.${enc(ref)}&client_telephone=eq.${enc(tel)}&select=id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,adresse,note,total,resto_slug,livreur_nom&limit=1`,
+    `commandes?ref=eq.${enc(ref)}&client_telephone=eq.${enc(tel)}&select=id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,adresse,note,total,resto_slug,livreur_id,livreur_nom&limit=1`,
   );
   if (!res.ok) return err(500, 'Erreur de recherche.');
   const rows = (await res.json()) as Partial<CommandeSuivi>[];
   if (!rows[0]) return err(404, 'Aucune commande trouvée avec ce numéro et ce téléphone.');
-  return json({ commande: rows[0] });
+  const [avecPos] = await attacherPositionsLivreurs(sb, [rows[0]]);
+  return json({ commande: avecPos });
 }
 
 // =============================================================================
@@ -797,6 +867,7 @@ const AdminRestaurantSchema = z.object({
   nom: z.string().trim().min(1).max(140).nullable().optional(),
   adresse: z.string().trim().max(240).nullable().optional(),
   telephone: z.string().trim().max(40).nullable().optional(),
+  email: z.string().trim().email().max(160).nullable().optional().or(z.literal('')),
   cuisines: z.array(z.string().trim().min(1).max(50)).max(15).nullable().optional(),
   type_commerce: z.enum(['restaurants', 'epicerie', 'patisserie', 'cafe', 'fleurs', 'para', 'animaux']).nullable().optional(),
   image: z.string().trim().max(500).nullable().optional(),
@@ -932,8 +1003,8 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
   const admin = await verifierUtilisateur(env, req);
   if (!admin) return err(401, 'Connexion requise.');
   if (admin.role !== 'admin' && admin.role !== 'livreur') return err(403, 'Accès réservé à l’administrateur.');
-  // Seul l'admin a accès aux sections CRM, livreurs, restaurants, réglages et notifications.
-  if (admin.role !== 'admin' && section !== 'commandes' && section !== 'stats') {
+  // Seul l'admin a accès aux sections CRM, livreurs, restaurants, réglages, tracking global, upload et notifications.
+  if (admin.role !== 'admin' && section !== 'commandes' && section !== 'stats' && section !== 'notifier-resto') {
     return err(403, 'Accès réservé à l’administrateur.');
   }
 
@@ -1037,7 +1108,7 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
 
   // --- COMMANDES ---
   if (section === 'commandes') {
-    const champsCmd = 'id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,client_telephone,client_email,adresse,note,total,resto_slug,livreur_id,livreur_nom,user_id,part_admin,regle_admin,regle_admin_at';
+    const champsCmd = 'id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,client_telephone,client_email,adresse,note,total,resto_slug,livreur_id,livreur_nom,user_id,part_admin,regle_admin,regle_admin_at,resto_telephone,resto_notifie_at';
     if (req.method === 'GET') {
       const u = new URL(req.url);
       const statut = u.searchParams.get('statut');
@@ -1446,6 +1517,7 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
         nom: parsed.data.nom !== undefined ? parsed.data.nom : (ex?.nom ?? null),
         adresse: parsed.data.adresse !== undefined ? parsed.data.adresse : (ex?.adresse ?? null),
         telephone: parsed.data.telephone !== undefined ? parsed.data.telephone : (ex?.telephone ?? null),
+        email: parsed.data.email !== undefined ? (parsed.data.email || null) : (ex?.email ?? null),
         cuisines: parsed.data.cuisines !== undefined ? parsed.data.cuisines : (ex?.cuisines ?? null),
         type_commerce: parsed.data.type_commerce !== undefined ? parsed.data.type_commerce : (ex?.type_commerce ?? 'restaurants'),
         image: parsed.data.image !== undefined ? parsed.data.image : (ex?.image ?? null),
@@ -1472,6 +1544,116 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
       if (!res.ok) return err(500, 'Suppression impossible.');
       return json({ ok: true });
     }
+  }
+
+  // --- UPLOAD IMAGE (POST /api/admin/upload → Supabase Storage bucket public `medias`) ---
+  if (section === 'upload' && req.method === 'POST') {
+    const body = (await req.json().catch(() => null)) as { dataUrl?: unknown; dossier?: unknown } | null;
+    const dataUrl = typeof body?.dataUrl === 'string' ? body.dataUrl : '';
+    const dossier = body?.dossier === 'logos' ? 'logos' : 'restos';
+    const m = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+    if (!m) return err(400, 'Format d’image non supporté (JPG, PNG, WebP ou GIF uniquement).');
+    const mime = m[1];
+    const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'gif';
+    const binStr = atob(m[2]);
+    if (binStr.length > 4 * 1024 * 1024) return err(413, 'Image trop lourde (4 Mo maximum).');
+    const bytes = new Uint8Array(binStr.length);
+    for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+    const chemin = `${dossier}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+    const up = await fetch(`${sb.url}/storage/v1/object/medias/${chemin}`, {
+      method: 'POST',
+      headers: headersSupabase(sb.cle, { 'Content-Type': mime, 'x-upsert': 'true', 'cache-control': '31536000' }),
+      body: bytes,
+    });
+    if (!up.ok) return err(500, 'Impossible d’envoyer l’image.');
+    return json({ url: `${sb.url}/storage/v1/object/public/medias/${chemin}` }, 201);
+  }
+
+  // --- TRACKING GPS TEMPS RÉEL DE TOUTE L'ÉQUIPE (GET /api/admin/tracking) ---
+  if (section === 'tracking' && req.method === 'GET') {
+    const [livRes, cmdRes] = await Promise.all([
+      restFetch(sb, 'livreurs?actif=eq.true&select=id,nom,telephone,vehicule,disponible,last_lat,last_lng,last_seen_at&order=nom.asc'),
+      restFetch(sb, 'commandes?statut=in.(nouvelle,confirmee,en_preparation,en_livraison)&select=id,ref,titre,statut,client_nom,adresse,livreur_id,total&order=creee.desc&limit=100'),
+    ]);
+    const livs = livRes.ok ? ((await livRes.json()) as LivreurGestion[]) : [];
+    const cmds = cmdRes.ok ? ((await cmdRes.json()) as Partial<CommandeSuivi>[]) : [];
+    const parLiv = new Map<string, Partial<CommandeSuivi>[]>();
+    for (const c of cmds) {
+      if (!c.livreur_id) continue;
+      const arr = parLiv.get(c.livreur_id) ?? [];
+      arr.push(c);
+      parLiv.set(c.livreur_id, arr);
+    }
+    return json({
+      livreurs: livs.map((l) => ({
+        ...l,
+        commandesEnCours: parLiv.get(l.id) ?? [],
+      })),
+    });
+  }
+
+  // --- NOTIFIER / INFORMER LE RESTAURANT D'UNE COMMANDE (POST /api/admin/notifier-resto) ---
+  if (section === 'notifier-resto' && req.method === 'POST') {
+    const body = (await req.json().catch(() => null)) as { commande_id?: unknown; canal?: unknown; email_resto?: unknown } | null;
+    const cmdId = typeof body?.commande_id === 'string' ? body.commande_id : '';
+    const canal = body?.canal === 'email' || body?.canal === 'whatsapp' || body?.canal === 'appel' ? body.canal : 'whatsapp';
+    if (!cmdId) return err(400, 'Commande requise.');
+
+    const curRes = await restFetch(sb, `commandes?id=eq.${enc(cmdId)}&select=*&limit=1`);
+    const rows = curRes.ok ? ((await curRes.json()) as CommandeSuivi[]) : [];
+    const cmd = rows[0];
+    if (!cmd) return err(404, 'Commande introuvable.');
+    if (admin.role === 'livreur' && (!monLivreur || cmd.livreur_id !== monLivreur.id)) {
+      return err(403, 'Commande non affectée.');
+    }
+
+    const gestions = cmd.resto_slug ? await lireRestaurantsGestion(env, cmd.resto_slug) : [];
+    const gestion = gestions[0] ?? null;
+    const telBrut = gestion?.telephone || cmd.resto_telephone || '';
+    const telNorm = normaliserTelephone(telBrut);
+    const emailResto = (typeof body?.email_resto === 'string' && body.email_resto.trim()) || gestion?.email || '';
+
+    // Message propre pour le resto : AUCUNE coordonnée privée du client !
+    const texteResto = [
+      `Bonjour ${cmd.titre},`,
+      '',
+      `Nouvelle commande N° ${cmd.ref} à préparer (${livreur.nom}) :`,
+      ...(cmd.lignes ?? []).map((l) => `- ${l}`),
+      ...(cmd.note ? ['', `Remarque : ${cmd.note}`] : []),
+      '',
+      'Un livreur passe la récupérer. Merci de confirmer le délai !',
+    ].join('\n');
+
+    let emailStatut: string | undefined;
+    if (canal === 'email') {
+      if (!emailResto) return err(400, 'Aucun email configuré pour ce restaurant (ajoutez-le dans Restos & Prix ou saisissez-le).');
+      const htmlResto = `<!doctype html><html><body style="font-family:system-ui,sans-serif;background:#f6f7fb;padding:16px;color:#111">
+<div style="max-width:500px;margin:0 auto;background:#fff;border-radius:20px;padding:20px">
+<h2 style="margin:0 0 8px">🍽️ Commande à préparer — N° ${echapperHtml(cmd.ref)}</h2>
+<p style="margin:0 0 12px;color:#555">Bonjour <b>${echapperHtml(cmd.titre)}</b> (${echapperHtml(livreur.nom)}) :</p>
+<ul style="background:#f6f7fb;border-radius:14px;padding:14px 14px 14px 30px;margin:0 0 12px">${(cmd.lignes ?? []).map((l) => `<li style="margin:4px 0"><b>${echapperHtml(l)}</b></li>`).join('')}</ul>
+${cmd.note ? `<p style="margin:0 0 10px"><b>📝 Remarque :</b> ${echapperHtml(cmd.note)}</p>` : ''}
+<p style="margin:0;color:#444">Un livreur passe récupérer la commande dès qu'elle est prête.</p>
+</div></body></html>`;
+      emailStatut = await envoyerEmail(emailResto, `🍽️ Commande N° ${cmd.ref} à préparer — ${cmd.titre}`, texteResto, env, htmlResto);
+    }
+
+    const now = new Date().toISOString();
+    await restFetch(
+      sb,
+      `commandes?id=eq.${enc(cmd.id)}`,
+      { method: 'PATCH', body: JSON.stringify({ resto_notifie_at: now }) },
+      { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    ).catch(() => {});
+
+    return json({
+      ok: true,
+      resto_notifie_at: now,
+      emailStatut,
+      telephone: telNorm ?? (telBrut || null),
+      whatsappUrl: telNorm ? `https://wa.me/${telNorm}?text=${encodeURIComponent(texteResto)}` : null,
+      texteResto,
+    });
   }
 
   return err(404, 'Section admin introuvable.');

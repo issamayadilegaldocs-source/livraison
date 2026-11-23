@@ -7,7 +7,7 @@ import {
   traiterColis, traiterCommande, verifierCoupon, type DonneesResto, type Env,
 } from '../lib/serveur';
 import {
-  endpointRestosLive, gererAdmin, gererAuth, gererCompte, suiviPublic,
+  endpointRestosLive, gererAdmin, gererAuth, gererCompte, majPositionLivreur, suiviPublic,
 } from '../lib/plateforme';
 
 const L = livreur as Livreur;
@@ -32,6 +32,7 @@ export async function route(request: Request): Promise<Response> {
   switch (nom) {
     case 'auth': return gererAuth(request, env, id);
     case 'compte': return gererCompte(request, env, id);
+    case 'livreur': return id === 'position' && m === 'POST' ? majPositionLivreur(request, env, L) : NON('POST');
     case 'suivi': return m === 'GET' ? suiviPublic(request, env) : NON('GET');
     case 'restos-live': return m === 'GET' ? endpointRestosLive(request, env) : NON('GET');
     case 'admin': return gererAdmin(request, env, L, id);

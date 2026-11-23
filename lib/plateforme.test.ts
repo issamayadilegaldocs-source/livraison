@@ -5,6 +5,7 @@ import {
   fusionnerDonneesResto,
   gererAdmin,
   lireTokenSession,
+  majPositionLivreur,
   slugifier,
   suiviPublic,
   type RestaurantGestion,
@@ -373,5 +374,89 @@ describe('gererAdmin & suiviPublic', () => {
     const d = await r.json();
     expect(d.nb_reglees).toBe(2);
     expect(d.montant_regle).toBe(2.5);
+  });
+
+  it('gère /api/admin/upload, /api/livreur/position et /api/admin/notifier-resto sans PII client', async () => {
+    const subId = '22222222-2222-4222-8222-222222222222';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.includes('/auth/v1/user')) return Response.json({ id: 'u-admin', email: 'admin@livraison.tn' });
+      if (url.includes('/rest/v1/profiles')) {
+        return Response.json([{ id: 'u-admin', email: 'admin@livraison.tn', role: 'admin', nom: 'Admin', telephone: '21693028832', actif: true }]);
+      }
+      if (url.includes('/storage/v1/object/medias/') && method === 'POST') return Response.json({ Key: 'medias/ok.png' });
+      if (url.includes('/rest/v1/livreurs') && method === 'GET') {
+        return Response.json([{ id: subId, user_id: 'u-admin', nom: 'Ahmed', telephone: '21693028832', email: null, ville: 'Sfax', vehicule: 'Moto', actif: true, disponible: true, commission_type: 'fixe', commission_valeur: 1, notes: null }]);
+      }
+      if (url.includes('/rest/v1/livreurs') && method === 'PATCH') return new Response(null, { status: 204 });
+      if (url.includes('/rest/v1/commandes') && method === 'GET') {
+        return Response.json([{
+          id: '9000000000001-RST001',
+          ref: 'RST001',
+          type: 'repas',
+          statut: 'nouvelle',
+          creee: '2026-11-23T12:00:00.000Z',
+          titre: 'Chap Lab',
+          lignes: ['2× Makloub Escalope'],
+          client_nom: 'Sami Secret',
+          client_telephone: '21622999888',
+          adresse: 'Rue Secrete 42',
+          note: 'Sans oignons',
+          total: 18,
+          resto_slug: 'chap-lab',
+          resto_telephone: '74123456',
+          livreur_id: subId,
+        }]);
+      }
+      if (url.includes('/rest/v1/restaurants_gestion')) return Response.json([]);
+      if (url.includes('/rest/v1/commandes') && method === 'PATCH') return new Response(null, { status: 204 });
+      return Response.json([]);
+    });
+
+    // 1. Upload PNG
+    const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const rUp = await gererAdmin(
+      new Request('https://site.test/api/admin/upload', {
+        method: 'POST',
+        headers: { cookie: 'liv_session=tok', 'content-type': 'application/json' },
+        body: JSON.stringify({ dataUrl: tinyPng, dossier: 'logos' }),
+      }),
+      ENV_SB,
+      LIVREUR,
+      'upload',
+    );
+    expect(rUp.status).toBe(201);
+    expect((await rUp.json()).url).toContain('/storage/v1/object/public/medias/logos/');
+
+    // 2. GPS position update
+    const rPos = await majPositionLivreur(
+      new Request('https://site.test/api/livreur/position', {
+        method: 'POST',
+        headers: { cookie: 'liv_session=tok', 'content-type': 'application/json' },
+        body: JSON.stringify({ lat: 34.741, lng: 10.761 }),
+      }),
+      ENV_SB,
+      LIVREUR,
+    );
+    expect(rPos.status).toBe(200);
+
+    // 3. Notify restaurant (WhatsApp) — never leaks client phone/address!
+    const rResto = await gererAdmin(
+      new Request('https://site.test/api/admin/notifier-resto', {
+        method: 'POST',
+        headers: { cookie: 'liv_session=tok', 'content-type': 'application/json' },
+        body: JSON.stringify({ commande_id: '9000000000001-RST001', canal: 'whatsapp' }),
+      }),
+      ENV_SB,
+      LIVREUR,
+      'notifier-resto',
+    );
+    expect(rResto.status).toBe(200);
+    const dResto = await rResto.json();
+    expect(dResto.whatsappUrl).toContain('https://wa.me/21674123456');
+    expect(dResto.texteResto).toContain('2× Makloub Escalope');
+    expect(dResto.texteResto).not.toContain('21622999888');
+    expect(dResto.texteResto).not.toContain('Rue Secrete');
   });
 });

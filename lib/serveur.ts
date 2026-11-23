@@ -91,10 +91,10 @@ export async function traiterCommande(
   if (!parsed.success) return erreur(400, 'Merci de vérifier le panier et vos coordonnées.');
   if (!SLUG.test(parsed.data.restoSlug)) return erreur(404, 'Restaurant introuvable.');
 
-  // Réglages du livreur (page de config) : pause, horaires, frais, prix des plats. Ils font foi, même si la
+  // Réglages du livreur (page de config) : pause, horaires, frais, majoration, prix des plats. Ils font foi, même si la
   // page du client a été ouverte avant un changement.
   const config = await lireConfigR2(env, livreur);
-  const { service, livraison, fraisService, livraisonGratuite, commission, promos, restosFermes, commandeMin, supplement } = reglages(livreur, config);
+  const { service, livraison, fraisService, livraisonGratuite, commission, promos, restosFermes, commandeMin, supplement, majoration } = reglages(livreur, config);
   const arret = messageArret(service, pauseEnCours(config, new Date()), new Date(), config.retour);
   if (arret) return erreur(400, arret);
   if (restosFermes.includes(parsed.data.restoSlug)) return erreur(400, 'Ce restaurant est indisponible pour le moment.');
@@ -106,16 +106,17 @@ export async function traiterCommande(
     lire(parsed.data.restoSlug),
     lireRestaurantsGestion(env, parsed.data.restoSlug),
   ]);
+  const gestionResto = gestions[0] ?? null;
   const origine = new URL(req.url).origin;
-  const fusion = fusionnerDonneesResto(donneesStatiques, gestions[0] ?? null, origine + '/media');
+  const fusion = fusionnerDonneesResto(donneesStatiques, gestionResto, origine + '/media');
   if (fusion.desactive) return erreur(400, 'Ce restaurant est indisponible pour le moment.');
   const donnees = fusion.donnees;
   if (!donnees) return erreur(404, 'Restaurant introuvable.');
   // Prix client = prix du resto (ou nouveau prix saisi par le livreur) + majoration ; plats indisponibles retirés.
   const slug = donnees.resto.slug;
-  const menu = { ...donnees.menu, plats: prixClients(donnees.menu.plats, livreur.majoration, slug, config.plats[slug]) };
+  const menu = { ...donnees.menu, plats: prixClients(donnees.menu.plats, majoration, slug, config.plats[slug]) };
 
-  const commande = calculerCommande({ ...livreur, livraison, fraisService: fraisService ?? undefined, livraisonGratuite: livraisonGratuite ?? undefined, commission, promos }, donnees.resto, menu, parsed.data, new Date(), { commandeMin, supplement });
+  const commande = calculerCommande({ ...livreur, majoration, livraison, fraisService: fraisService ?? undefined, livraisonGratuite: livraisonGratuite ?? undefined, commission, promos }, donnees.resto, menu, parsed.data, new Date(), { commandeMin, supplement });
   if ('erreur' in commande) return erreur(400, commande.erreur);
 
   // Images de l'email : Gmail ne charge pas « /media/... », il faut une URL absolue.
@@ -140,6 +141,8 @@ export async function traiterCommande(
       userId: utilisateur?.id ?? null,
       clientEmail: commande.client.email ?? utilisateur?.email ?? null,
       restoSlug: slug,
+      restoTelephone: donnees.resto.telephone || null,
+      restoNotifieAt: gestionResto?.email ? maintenant.toISOString() : null,
       maintenant,
     }),
     enregistrerClientCRM(env, {
@@ -152,6 +155,24 @@ export async function traiterCommande(
       userId: utilisateur?.id ?? null,
       maintenant,
     }),
+    // Notification automatique par email au restaurant s'il a un email configuré (sans données privées client).
+    gestionResto?.email
+      ? envoyerEmail(
+          gestionResto.email,
+          `🍽️ Nouvelle commande à préparer N° ${ref} — ${donnees.resto.nom}`,
+          [
+            `Bonjour ${donnees.resto.nom},`,
+            '',
+            `Nouvelle commande N° ${ref} à préparer (${livreur.nom}) :`,
+            ...fiche.lignes.map((l) => `- ${l}`),
+            ...(commande.client.note ? ['', `Note : ${commande.client.note}`] : []),
+            ...(lienBon ? ['', `Bon de commande : ${lienBon}`] : []),
+            '',
+            'Un livreur passera récupérer la commande.',
+          ].join('\n'),
+          env,
+        ).catch(() => {})
+      : null,
   ]);
 
   const [email, whatsappAuto] = await Promise.all([
@@ -247,12 +268,14 @@ export async function verifierCoupon(req: Request, env: Env, livreur: Livreur): 
  */
 export async function etatLivreur(req: Request, env: Env, livreur: Livreur): Promise<Response> {
   const config = await lireConfigR2(env, livreur);
-  const { service, livraison, fraisService, livraisonGratuite, colis, commission, promos, restosFermes, commandeMin, supplement, annonce, pourboires } = reglages(livreur, config);
+  const { service, livraison, fraisService, livraisonGratuite, colis, commission, promos, restosFermes, commandeMin, supplement, annonce, pourboires, majoration, logoUrl } = reglages(livreur, config);
   const resto = new URL(req.url).searchParams.get('resto') ?? '';
-  // Corrections = prix client : le navigateur ne voit ni les prix du resto ni la majoration.
-  const plats = SLUG.test(resto) ? correctionsClient(livreur.majoration, resto, config.plats[resto]) : {};
+  // Corrections = prix client : le navigateur ne voit ni les prix du resto ni la majoration build-time.
+  const plats = SLUG.test(resto) ? correctionsClient(majoration, resto, config.plats[resto]) : {};
+  // Majoration live (uniquement si configurée dans /admin) pour mettre à jour l'affichage des prix sur le menu.
+  const majorationResto = config.majoration && SLUG.test(resto) ? (config.majoration.restos?.[resto] ?? config.majoration.tous ?? null) : null;
   const pause = pauseEnCours(config, new Date());
-  return Response.json({ pause, retour: pause ? (config.retour ?? null) : null, service: service ?? null, livraison, fraisService, livraisonGratuite, colis, restosFermes, commandeMin, supplement, annonce, pourboires, promos: promos.filter((p) => !p.code).map(vueClient), plats }, { headers: { 'cache-control': 'no-store' } });
+  return Response.json({ pause, retour: pause ? (config.retour ?? null) : null, service: service ?? null, livraison, fraisService, livraisonGratuite, colis, restosFermes, commandeMin, supplement, annonce, pourboires, promos: promos.filter((p) => !p.code).map(vueClient), plats, logoUrl, majorationResto }, { headers: { 'cache-control': 'no-store' } });
 }
 
 // --- Historique des commandes (Supabase `commandes` ou bucket R2 `BONS`) ------------------------------------

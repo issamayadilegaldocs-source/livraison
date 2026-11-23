@@ -4,13 +4,13 @@ import { Noto_Sans_Arabic, Plus_Jakarta_Sans } from 'next/font/google';
 import Link from '@/app/components/Lien';
 import { ChoixLangue, LangueProvider, T } from '@/lib/i18n';
 import { getLivreur } from '@/lib/livreur';
-import { LogoLivreur } from '@/lib/logo';
 import BandeauHorsLigne from './components/BandeauHorsLigne';
 import BandeauLivreur from './components/BandeauLivreur';
 import BandePromo from './components/BandePromo';
 import { vueClient } from '@/lib/commission';
 import BandeauInstaller from './components/BandeauInstaller';
 import BoutonCompte from './components/BoutonCompte';
+import LogoDynamique from './components/LogoDynamique';
 import MasquerEntete from './components/MasquerEntete';
 import './globals.css';
 
@@ -45,13 +45,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <header className="entete sticky top-0 z-30 border-b border-black/5 bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur">
           <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
             <Link href="/" className="flex min-w-0 items-center gap-2.5">
-              {l.logo ? (
-                <img src={l.logo} alt="" className="h-9 w-9 rounded-xl object-cover" />
-              ) : (
-                <span className="shrink-0">
-                  <LogoLivreur couleur={l.couleur} taille={36} />
-                </span>
-              )}
+              <LogoDynamique logoDefaut={l.logo} couleur={l.couleur} />
               <span className="min-w-0">
                 <span className="block truncate text-[17px] font-extrabold leading-tight">{l.nom}</span>
                 <span className="block text-xs font-medium text-muted"><T k="Livraison à {ville}" v={{ ville: l.ville }} /></span>

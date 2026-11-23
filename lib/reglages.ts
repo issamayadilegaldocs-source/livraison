@@ -1,7 +1,7 @@
 'use client';
 // Réglages du livreur (page de config) vus par le navigateur : GET /api/etat, gardé 2 min dans sessionStorage.
 import { useEffect, useState } from 'react';
-import type { Correction } from './config';
+import type { Correction, Regle } from './config';
 import type { PromoVue } from './commission';
 import type { Supplement } from './regles-livreur';
 import type { TarifColis } from './colis';
@@ -10,7 +10,7 @@ import type { LivraisonGratuite } from './livraison-gratuite';
 import type { ConfLivraison } from './livraison';
 import type { Service } from './service';
 
-export type Reglages = { pause: boolean; retour: string | null; service: Service | null; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; promos: PromoVue[]; plats: Record<string, Correction> };
+export type Reglages = { pause: boolean; retour: string | null; service: Service | null; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; promos: PromoVue[]; plats: Record<string, Correction>; logoUrl?: string | null; majorationResto?: Regle | null };
 
 const DUREE_CACHE = 2 * 60_000;
 

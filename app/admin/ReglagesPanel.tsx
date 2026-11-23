@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Promo } from '@/lib/commission';
-import type { Config } from '@/lib/config';
+import type { Config, Majoration, Regle } from '@/lib/config';
 
 type ReglagesApi = {
   config: Config;
@@ -27,6 +27,8 @@ type ReglagesApi = {
     } | null;
     annonce: string | null;
     pourboires: number[];
+    majoration?: Majoration;
+    logoUrl?: string | null;
   };
   pauseActive: boolean;
 };
@@ -85,6 +87,17 @@ export default function ReglagesPanel({
 
   const [commResto, setCommResto] = useState('');
   const [commPct, setCommPct] = useState('10');
+
+  // Logo du site (upload ou URL)
+  const [logoUrl, setLogoUrl] = useState('');
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // Majoration (marge livreur ajoutée aux prix des plats)
+  const [majType, setMajType] = useState<'aucune' | 'montant' | 'pourcent'>('aucune');
+  const [majVal, setMajVal] = useState('1');
+  const [majRestoSlug, setMajRestoSlug] = useState('');
+  const [majRestoType, setMajRestoType] = useState<'montant' | 'pourcent'>('montant');
+  const [majRestoVal, setMajRestoVal] = useState('2');
 
   const [promoForm, setPromoForm] = useState({
     estCoupon: false,
@@ -153,7 +166,46 @@ export default function ReglagesPanel({
       nuitA: effectif.colis.nuit?.a ?? '06:00',
       nuitMt: String(effectif.colis.nuit?.montant ?? 2),
     });
+    setLogoUrl(effectif.logoUrl ?? '');
+    const mt = effectif.majoration?.tous;
+    if (mt && 'montant' in mt) {
+      setMajType('montant');
+      setMajVal(String(mt.montant));
+    } else if (mt && 'pourcent' in mt) {
+      setMajType('pourcent');
+      setMajVal(String(mt.pourcent));
+    } else {
+      setMajType('aucune');
+    }
   }, [data]);
+
+  async function uploaderLogo(file: File) {
+    setUploadingLogo(true);
+    setMsg('');
+    setErr('');
+    try {
+      const dataUrl = await new Promise<string>((ok, ko) => {
+        const rd = new FileReader();
+        rd.onload = () => ok(String(rd.result ?? ''));
+        rd.onerror = ko;
+        rd.readAsDataURL(file);
+      });
+      const res = await fetch('/api/admin/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ dataUrl, dossier: 'logos' }),
+      });
+      const d = await res.json().catch(() => null);
+      if (!res.ok || !d?.url) return setErr(d?.erreur ?? 'Upload logo impossible.');
+      setLogoUrl(d.url);
+      await enregistrer('logo', { logoUrl: d.url }, 'Nouveau logo du site');
+    } catch {
+      setErr('Erreur lors de l’envoi du logo.');
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
 
   if (!data) {
     return <div className="rounded-3xl bg-white p-6 text-center text-sm text-muted">Chargement des réglages…</div>;
@@ -171,6 +223,16 @@ export default function ReglagesPanel({
 
   const promosActuelles: Promo[] = data.effectif.promos ?? [];
   const commissionsRestos = data.effectif.commission?.restos ?? {};
+  const majRestos = data.effectif.majoration?.restos ?? {};
+
+  function construireMajoration(tousType: 'aucune' | 'montant' | 'pourcent', tousVal: string, restosMap: Record<string, Regle>): Majoration | null {
+    const v = num(tousVal, 0);
+    const tous: Regle | undefined =
+      tousType === 'montant' && v > 0 ? { montant: v } : tousType === 'pourcent' && v > 0 ? { pourcent: v } : undefined;
+    const hasRestos = Object.keys(restosMap).length > 0;
+    if (!tous && !hasRestos) return null;
+    return { ...(tous ? { tous } : {}), ...(hasRestos ? { restos: restosMap } : {}) };
+  }
 
   async function ajouterPromo(e: React.FormEvent) {
     e.preventDefault();
@@ -263,6 +325,156 @@ export default function ReglagesPanel({
           >
             Enregistrer
           </button>
+        </section>
+
+        {/* BLOC MAJORATION (marge ajoutée aux plats) */}
+        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+          <h3 className="m-0 text-base font-extrabold">💵 Majoration (ta marge sur les plats)</h3>
+          <p className="m-0 mt-0.5 text-xs text-muted">
+            Ajoutée automatiquement aux prix des restos. Le client ne voit que le prix final ; ta marge apparaît dans tes emails de commande.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
+            <label className="text-xs font-bold">
+              Sur tous les restos
+              <select value={majType} onChange={(e) => setMajType(e.target.value as 'aucune' | 'montant' | 'pourcent')} className={inp}>
+                <option value="aucune">Aucune majoration</option>
+                <option value="montant">Montant fixe par plat (+ DT)</option>
+                <option value="pourcent">Pourcentage (+ %)</option>
+              </select>
+            </label>
+            <label className="text-xs font-bold">
+              Valeur {majType === 'montant' ? '(DT)' : majType === 'pourcent' ? '(%)' : ''}
+              <input type="number" step="0.1" min="0.1" disabled={majType === 'aucune'} value={majVal} onChange={(e) => setMajVal(e.target.value)} className={inp} />
+            </label>
+          </div>
+          {majType !== 'aucune' && (
+            <p className="m-0 mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
+              Exemple : un plat à 10 DT sera affiché à{' '}
+              <b>
+                {majType === 'montant'
+                  ? `${(10 + num(majVal, 0)).toFixed(3).replace('.', ',')} DT`
+                  : `${(Math.ceil(10 * (100 + num(majVal, 0)) / 10) / 10).toFixed(3).replace('.', ',')} DT`}
+              </b>{' '}
+              au client.
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={saving === 'maj'}
+            onClick={() => enregistrer('maj', { majoration: construireMajoration(majType, majVal, majRestos) }, 'Majoration')}
+            className="mt-3 h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+          >
+            Enregistrer la majoration
+          </button>
+
+          {/* Exception par restaurant */}
+          <div className="mt-3 border-t border-black/5 pt-3">
+            <p className="m-0 text-xs font-extrabold text-ink">Exception pour un restaurant précis</p>
+            <div className="mt-2 flex flex-wrap items-end gap-1.5">
+              <select value={majRestoSlug} onChange={(e) => setMajRestoSlug(e.target.value)} className="h-9 min-w-[140px] flex-1 rounded-xl border border-black/10 bg-white px-2.5 text-xs">
+                <option value="">Choisir un resto…</option>
+                {restos.map((r) => (
+                  <option key={r.slug} value={r.slug}>{r.nom}</option>
+                ))}
+              </select>
+              <select value={majRestoType} onChange={(e) => setMajRestoType(e.target.value as 'montant' | 'pourcent')} className="h-9 rounded-xl border border-black/10 bg-white px-2 text-xs font-bold">
+                <option value="montant">+ DT</option>
+                <option value="pourcent">+ %</option>
+              </select>
+              <input type="number" step="0.1" min="0.1" value={majRestoVal} onChange={(e) => setMajRestoVal(e.target.value)} className="h-9 w-16 rounded-xl border border-black/10 bg-white px-2 text-xs font-bold" />
+              <button
+                type="button"
+                disabled={!majRestoSlug}
+                onClick={() => {
+                  const v = num(majRestoVal, 0);
+                  if (!majRestoSlug || v <= 0) return;
+                  const regle: Regle = majRestoType === 'montant' ? { montant: v } : { pourcent: v };
+                  const nextRestos = { ...majRestos, [majRestoSlug]: regle };
+                  enregistrer('maj-r', { majoration: construireMajoration(majType, majVal, nextRestos) }, `Majoration ${majRestoSlug}`);
+                  setMajRestoSlug('');
+                }}
+                className="h-9 rounded-xl bg-ink px-3 text-xs font-extrabold text-white disabled:opacity-40"
+              >
+                +
+              </button>
+            </div>
+            {Object.keys(majRestos).length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {Object.entries(majRestos).map(([slug, r]) => (
+                  <span key={slug} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-extrabold text-emerald-900">
+                    {slug} : {'montant' in r ? `+${r.montant} DT` : `+${r.pourcent}%`}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextRestos = { ...majRestos };
+                        delete nextRestos[slug];
+                        enregistrer('maj-del', { majoration: construireMajoration(majType, majVal, nextRestos) }, 'Exception retirée');
+                      }}
+                      className="text-red-700"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* BLOC LOGO DU SITE (upload ou URL) */}
+        <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+          <h3 className="m-0 text-base font-extrabold">🎨 Logo du site</h3>
+          <p className="m-0 mt-0.5 text-xs text-muted">Affiché dans l’en-tête du site. Importez une image carrée ou collez un lien.</p>
+          <div className="mt-3 flex items-center gap-3">
+            {logoUrl ? (
+              <img src={logoUrl} alt="Logo du site" className="h-16 w-16 rounded-2xl border border-black/10 object-cover" />
+            ) : (
+              <div className="grid h-16 w-16 place-items-center rounded-2xl bg-primary/10 text-2xl font-extrabold text-primary">🛵</div>
+            )}
+            <div className="flex flex-1 flex-col gap-2">
+              <div className="flex flex-wrap gap-2">
+                <label className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-xl bg-ink px-3.5 text-xs font-extrabold text-white hover:opacity-90">
+                  <span>{uploadingLogo ? 'Envoi…' : '📤 Importer un logo'}</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    disabled={uploadingLogo}
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) uploaderLogo(f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                {logoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => { setLogoUrl(''); enregistrer('logo', { logoUrl: null }, 'Logo par défaut remis'); }}
+                    className="h-10 rounded-xl border border-black/10 px-3 text-xs font-bold text-red-700"
+                  >
+                    Logo par défaut
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-1.5">
+                <input
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  placeholder="Ou coller une URL https://…"
+                  className="h-9 flex-1 rounded-xl border border-black/10 px-3 text-xs"
+                />
+                <button
+                  type="button"
+                  disabled={saving === 'logo'}
+                  onClick={() => enregistrer('logo', { logoUrl: logoUrl.trim() || null }, 'Logo du site')}
+                  className="h-9 rounded-xl bg-primary px-3 text-xs font-extrabold text-white"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
 
         {/* BLOC 2 : PRIX DE LIVRAISON + LIVRAISON GRATUITE + PLUIE */}

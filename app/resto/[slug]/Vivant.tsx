@@ -3,7 +3,7 @@
 // corrigés) s'appliquent dans le navigateur.
 import { useEffect, useMemo, useState, type ComponentProps } from 'react';
 import type { Horaire } from '@/lib/catalogue';
-import { corrigerPlats } from '@/lib/config';
+import { corrigerPlats, majorer } from '@/lib/config';
 import { estOuvert, libelleHoraire } from '@/lib/horaires';
 import { useT } from '@/lib/i18n';
 import { useMaintenant } from '@/lib/maintenant';
@@ -87,7 +87,23 @@ export function MenuVivant({ horaires, service, livraison, fraisService, livrais
         groupes: [],
       });
     }
-    return { categoriesVues: categories, platsVus: corrigerPlats(basePlats, r?.plats) };
+    const maj = r?.majorationResto ?? null;
+    const majores: PlatVue[] = maj
+      ? basePlats.map((p) => {
+          if ('montant' in maj) {
+            return { ...p, prix: Math.round((p.prix + maj.montant) * 1000) / 1000 };
+          }
+          return {
+            ...p,
+            prix: majorer(p.prix, maj.pourcent),
+            groupes: p.groupes.map((g) => ({
+              ...g,
+              options: g.options.map((o) => ({ ...o, prix: o.prix > 0 ? majorer(o.prix, maj.pourcent) : 0 })),
+            })),
+          };
+        })
+      : basePlats;
+    return { categoriesVues: categories, platsVus: corrigerPlats(majores, r?.plats) };
   }, [menu, r, gestion]);
   if (!menu)
     return erreur ? (

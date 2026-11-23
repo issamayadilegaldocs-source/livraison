@@ -1,8 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import Link from '@/app/components/Lien';
 import { CLE_CLIENT } from '@/lib/client';
+
+const CarteTracking = dynamic(() => import('@/app/admin/CarteTracking'), { ssr: false });
 
 type Statut = 'nouvelle' | 'confirmee' | 'en_preparation' | 'en_livraison' | 'livree' | 'annulee';
 
@@ -32,6 +35,7 @@ type Commande = {
   note: string | null;
   total: number;
   livreur_nom: string | null;
+  livreur_position?: { lat: number; lng: number; at: string } | null;
 };
 
 const ETAPES: { cle: Statut; label: string }[] = [
@@ -109,6 +113,28 @@ function CarteCommande({ c }: { c: Commande }) {
 
       {c.livreur_nom && (
         <p className="mt-3 text-xs font-bold text-ink">🛵 Livreur assigné : {c.livreur_nom}</p>
+      )}
+
+      {c.livreur_position && c.statut !== 'livree' && c.statut !== 'annulee' && (
+        <div className="mt-3">
+          <p className="m-0 mb-1.5 flex items-center gap-1.5 text-xs font-extrabold text-emerald-700">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+            Position du livreur en direct
+          </p>
+          <CarteTracking
+            hauteur={200}
+            points={[
+              {
+                id: c.id,
+                nom: c.livreur_nom || 'Livreur',
+                lat: c.livreur_position.lat,
+                lng: c.livreur_position.lng,
+                at: c.livreur_position.at,
+                detail: `Commande N° ${c.ref}`,
+              },
+            ]}
+          />
+        </div>
       )}
 
       <ul className="mt-3 space-y-1 border-t border-black/5 pt-3 text-xs text-ink/80 sm:text-sm">
