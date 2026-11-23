@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from '@/app/components/Lien';
+import { basculerFavori, estFavori, EVT_FAVORIS } from '@/lib/app-client';
 import { useT } from '@/lib/i18n';
 import Img from './Img';
 
@@ -24,6 +26,40 @@ export type CarteResto = {
   href?: string;
 };
 
+function BoutonFavori({ r, className = '' }: { r: CarteResto; className?: string }) {
+  const [fav, setFav] = useState(false);
+
+  useEffect(() => {
+    const maj = () => setFav(estFavori(r.slug));
+    maj();
+    window.addEventListener(EVT_FAVORIS, maj);
+    return () => window.removeEventListener(EVT_FAVORIS, maj);
+  }, [r.slug]);
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        basculerFavori({
+          slug: r.slug,
+          nom: r.nom,
+          couverture: r.couverture,
+          logo: r.logo,
+          cuisines: r.cuisines,
+          delai: r.delai,
+          href: r.href,
+        });
+      }}
+      aria-label={fav ? `Retirer ${r.nom} des favoris` : `Ajouter ${r.nom} aux favoris`}
+      className={`grid h-9 w-9 place-items-center rounded-full bg-white/95 text-base shadow transition active:scale-90 ${className}`}
+    >
+      {fav ? '❤️' : '🤍'}
+    </button>
+  );
+}
+
 export function Etoiles({ note, nbAvis }: { note: number; nbAvis: number }) {
   if (!nbAvis) return null;
   return (
@@ -46,9 +82,12 @@ export function RestoTile({ r, className = '' }: { r: CarteResto; className?: st
         {r.delai && (
           <span className="absolute start-3 top-3 rounded-full bg-white px-2.5 py-1 text-xs font-bold">🕒 {delai(r.delai, t('min'))}</span>
         )}
-        {r.promo && (
-          <span className="absolute end-3 top-3 rounded-full bg-[#d6336c] px-2.5 py-1 text-xs font-extrabold text-white shadow">🏷️ {r.promo}</span>
-        )}
+        <div className="absolute end-3 top-3 flex items-center gap-1.5">
+          {r.promo && (
+            <span className="rounded-full bg-[#d6336c] px-2.5 py-1 text-xs font-extrabold text-white shadow">🏷️ {r.promo}</span>
+          )}
+          <BoutonFavori r={r} />
+        </div>
         {!r.ouvert && (
           <div className="absolute inset-0 flex items-end bg-black/55 p-3">
             <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold">{r.libelle}</span>
@@ -89,6 +128,7 @@ export function RestoRow({ r, plat }: { r: CarteResto; plat?: string | null }) {
         {r.promo && <span className="self-start rounded-full bg-[#fde7ef] px-2.5 py-1 text-xs font-extrabold text-[#b0124d]">🏷️ {r.promo}</span>}
         {plat && <span className="mt-0.5 self-start truncate rounded-lg bg-[#f1f3f9] px-2 py-1 text-xs font-semibold">{t('Plat : {p}', { p: plat })}</span>}
       </span>
+      <BoutonFavori r={r} className="shrink-0 border border-black/5 shadow-none" />
       <span aria-hidden className="shrink-0 text-xl text-gray-400 rtl:-scale-x-100">›</span>
     </Link>
   );

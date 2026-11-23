@@ -1594,7 +1594,7 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
 
   // --- NOTIFIER / INFORMER LE RESTAURANT D'UNE COMMANDE (POST /api/admin/notifier-resto) ---
   if (section === 'notifier-resto' && req.method === 'POST') {
-    const body = (await req.json().catch(() => null)) as { commande_id?: unknown; canal?: unknown; email_resto?: unknown } | null;
+    const body = (await req.json().catch(() => null)) as { commande_id?: unknown; canal?: unknown; email_resto?: unknown; telephone_resto?: unknown } | null;
     const cmdId = typeof body?.commande_id === 'string' ? body.commande_id : '';
     const canal = body?.canal === 'email' || body?.canal === 'whatsapp' || body?.canal === 'appel' ? body.canal : 'whatsapp';
     if (!cmdId) return err(400, 'Commande requise.');
@@ -1609,7 +1609,40 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
 
     const gestions = cmd.resto_slug ? await lireRestaurantsGestion(env, cmd.resto_slug) : [];
     const gestion = gestions[0] ?? null;
-    const telBrut = gestion?.telephone || cmd.resto_telephone || '';
+    let telBrut =
+      (typeof body?.telephone_resto === 'string' && body.telephone_resto.trim()) ||
+      gestion?.telephone ||
+      cmd.resto_telephone ||
+      '';
+
+    // Repli automatique sur le catalogue statique (/commande-data/<slug> puis /restos.json) si le numéro n'était pas en base
+    if (!telBrut) {
+      try {
+        if (cmd.resto_slug && SLUG_RE.test(cmd.resto_slug)) {
+          const rStat = await fetch(new URL(`/commande-data/${cmd.resto_slug}`, req.url));
+          if (rStat.ok) {
+            const dStat = (await rStat.json().catch(() => null)) as { resto?: { telephone?: string } } | null;
+            if (dStat?.resto?.telephone) telBrut = dStat.resto.telephone;
+          }
+        }
+        if (!telBrut) {
+          const rIdx = await fetch(new URL('/restos.json', req.url));
+          if (rIdx.ok) {
+            const liste = (await rIdx.json().catch(() => [])) as { slug?: string; nom?: string; telephone?: string }[];
+            const titreNorm = (cmd.titre || '').trim().toLowerCase();
+            const match = liste.find(
+              (r) =>
+                (cmd.resto_slug && r.slug === cmd.resto_slug) ||
+                (r.nom && r.nom.trim().toLowerCase() === titreNorm),
+            );
+            if (match?.telephone) telBrut = match.telephone;
+          }
+        }
+      } catch {
+        /* catalogue statique indisponible dans l'environnement courant */
+      }
+    }
+
     const telNorm = normaliserTelephone(telBrut);
     const emailResto = (typeof body?.email_resto === 'string' && body.email_resto.trim()) || gestion?.email || '';
 
@@ -1639,10 +1672,12 @@ ${cmd.note ? `<p style="margin:0 0 10px"><b>📝 Remarque :</b> ${echapperHtml(c
     }
 
     const now = new Date().toISOString();
+    const patchResto: Record<string, unknown> = { resto_notifie_at: now };
+    if (!cmd.resto_telephone && (telNorm || telBrut)) patchResto.resto_telephone = telNorm ?? telBrut;
     await restFetch(
       sb,
       `commandes?id=eq.${enc(cmd.id)}`,
-      { method: 'PATCH', body: JSON.stringify({ resto_notifie_at: now }) },
+      { method: 'PATCH', body: JSON.stringify(patchResto) },
       { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
     ).catch(() => {});
 

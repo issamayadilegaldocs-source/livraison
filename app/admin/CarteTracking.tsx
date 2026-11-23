@@ -60,15 +60,18 @@ export default function CarteTracking({
 
     const bounds: [number, number][] = [];
     for (const p of points) {
+      const safeNom = p.nom.replace(/[<>&"]/g, '');
+      const age = ilYa(p.at);
+      // Auto-width pill centered on GPS coordinates (no fixed width clipping!)
       const icon = L.divIcon({
         className: 'tracking-pin',
-        html: `<div style="display:flex;align-items:center;gap:4px;background:#141a2b;color:#fff;padding:4px 9px;border-radius:999px;font-weight:800;font-size:12px;white-space:nowrap;border:2px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,.25)">🛵 ${p.nom.replace(/[<>&"]/g, '')}</div>`,
-        iconSize: [120, 30],
-        iconAnchor: [60, 15],
+        html: `<div style="position:relative;display:inline-flex;align-items:center;gap:5px;width:max-content;transform:translate(-50%,-50%);background:#141a2b;color:#fff;padding:5px 11px;border-radius:999px;font-weight:800;font-size:12px;line-height:1.2;white-space:nowrap;border:2px solid #fff;box-shadow:0 4px 14px rgba(0,0,0,.3)"><span style="display:inline-block;width:7px;height:7px;border-radius:999px;background:#34d399;flex-shrink:0"></span><span>🛵 ${safeNom}</span></div>`,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
       });
       const marker = L.marker([p.lat, p.lng], { icon });
       marker.bindPopup(
-        `<b>🛵 ${p.nom.replace(/[<>&"]/g, '')}</b>${p.at ? `<br/><small>Signal : ${ilYa(p.at)}</small>` : ''}${p.detail ? `<br/>${p.detail.replace(/[<>&"]/g, '')}` : ''}`,
+        `<b>🛵 ${safeNom}</b>${age ? `<br/><small>Signal : ${age}</small>` : ''}${p.detail ? `<br/>${p.detail.replace(/[<>&"]/g, '')}` : ''}`,
       );
       marker.addTo(g);
       bounds.push([p.lat, p.lng]);
@@ -76,7 +79,7 @@ export default function CarteTracking({
     if (bounds.length === 1) {
       m.setView(bounds[0], 15, { animate: true });
     } else if (bounds.length > 1) {
-      m.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+      m.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
     }
   }, [points]);
 

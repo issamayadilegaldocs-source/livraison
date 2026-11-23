@@ -29,6 +29,7 @@ type ReglagesApi = {
     pourboires: number[];
     majoration?: Majoration;
     logoUrl?: string | null;
+    nomSite?: string | null;
   };
   pauseActive: boolean;
 };
@@ -88,8 +89,9 @@ export default function ReglagesPanel({
   const [commResto, setCommResto] = useState('');
   const [commPct, setCommPct] = useState('10');
 
-  // Logo du site (upload ou URL)
+  // Logo & Nom du site (upload ou URL)
   const [logoUrl, setLogoUrl] = useState('');
+  const [nomSite, setNomSite] = useState('');
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
   // Majoration (marge livreur ajoutée aux prix des plats)
@@ -167,6 +169,7 @@ export default function ReglagesPanel({
       nuitMt: String(effectif.colis.nuit?.montant ?? 2),
     });
     setLogoUrl(effectif.logoUrl ?? '');
+    setNomSite(effectif.nomSite ?? '');
     const mt = effectif.majoration?.tous;
     if (mt && 'montant' in mt) {
       setMajType('montant');
@@ -421,10 +424,34 @@ export default function ReglagesPanel({
           </div>
         </section>
 
-        {/* BLOC LOGO DU SITE (upload ou URL) */}
+        {/* BLOC LOGO & NOM DU SITE (upload ou URL + nom dynamique) */}
         <section className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
-          <h3 className="m-0 text-base font-extrabold">🎨 Logo du site</h3>
-          <p className="m-0 mt-0.5 text-xs text-muted">Affiché dans l’en-tête du site. Importez une image carrée ou collez un lien.</p>
+          <h3 className="m-0 text-base font-extrabold">🎨 Logo &amp; Nom du site</h3>
+          <p className="m-0 mt-0.5 text-xs text-muted">Affichés dans l’en-tête, le pied de page et le titre du navigateur en direct.</p>
+
+          <div className="mt-3 rounded-2xl bg-[#f6f7fb] p-3">
+            <label className="block text-xs font-bold text-ink">
+              Nom affiché du site (ex. Ahmed Livraison)
+              <div className="mt-1 flex gap-1.5">
+                <input
+                  value={nomSite}
+                  onChange={(e) => setNomSite(e.target.value)}
+                  maxLength={60}
+                  placeholder="Ex. Ahmed Livraison"
+                  className="h-10 flex-1 rounded-xl border border-black/10 bg-white px-3 text-sm font-bold outline-none focus:border-primary"
+                />
+                <button
+                  type="button"
+                  disabled={saving === 'nomSite'}
+                  onClick={() => enregistrer('nomSite', { nomSite: nomSite.trim() || null }, 'Nom du site')}
+                  className="h-10 rounded-xl bg-primary px-4 text-xs font-extrabold text-white"
+                >
+                  Enregistrer
+                </button>
+              </div>
+            </label>
+          </div>
+
           <div className="mt-3 flex items-center gap-3">
             {logoUrl ? (
               <img src={logoUrl} alt="Logo du site" className="h-16 w-16 rounded-2xl border border-black/10 object-cover" />

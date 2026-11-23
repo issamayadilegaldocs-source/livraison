@@ -10,8 +10,9 @@ import BandePromo from './components/BandePromo';
 import { vueClient } from '@/lib/commission';
 import BandeauInstaller from './components/BandeauInstaller';
 import BoutonCompte from './components/BoutonCompte';
-import LogoDynamique from './components/LogoDynamique';
+import LogoDynamique, { NomSiteDynamique } from './components/LogoDynamique';
 import MasquerEntete from './components/MasquerEntete';
+import NavBasClient from './components/NavBasClient';
 import './globals.css';
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-jakarta', display: 'swap' });
@@ -47,7 +48,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <Link href="/" className="flex min-w-0 items-center gap-2.5">
               <LogoDynamique logoDefaut={l.logo} couleur={l.couleur} />
               <span className="min-w-0">
-                <span className="block truncate text-[17px] font-extrabold leading-tight">{l.nom}</span>
+                <span className="block truncate text-[17px] font-extrabold leading-tight"><NomSiteDynamique nomDefaut={l.nom} ville={l.ville} /></span>
                 <span className="block text-xs font-medium text-muted"><T k="Livraison à {ville}" v={{ ville: l.ville }} /></span>
               </span>
             </Link>
@@ -66,8 +67,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <BandeauLivreur service={l.service} />
         <BandePromo livraisonGratuite={l.livraisonGratuite ?? null} promos={(l.promos ?? []).filter((p) => p.actif && !p.code).map(vueClient)} />
         <main className="mx-auto max-w-6xl pb-28 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">{children}</main>
-        <footer className="border-t border-black/5 bg-white pt-8 pb-[max(2rem,env(safe-area-inset-bottom))] text-center text-sm text-muted">
-          <p className="font-bold text-ink">{l.nom}</p>
+        <footer className="border-t border-black/5 bg-white pt-8 pb-[max(5.5rem,env(safe-area-inset-bottom))] text-center text-sm text-muted lg:pb-[max(2rem,env(safe-area-inset-bottom))]">
+          <p className="font-bold text-ink"><NomSiteDynamique nomDefaut={l.nom} /></p>
           <p className="mt-1">
             <T k="Livraison selon la distance · Paiement à la livraison · {ville}" v={{ ville: l.ville }} />
           </p>
@@ -80,6 +81,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </Link>
           </p>
         </footer>
+        <NavBasClient />
         </LangueProvider>
       </body>
     </html>

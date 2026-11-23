@@ -11,6 +11,15 @@ import LivreursPanel from './LivreursPanel';
 import RestaurantsPanel from './RestaurantsPanel';
 import ReglagesPanel from './ReglagesPanel';
 import type { PointTracking } from './CarteTracking';
+import {
+  activerAlertesNavigateur,
+  declencherAlerte,
+  distanceEnKm,
+  formaterDistance,
+  lienGoogleMaps,
+  prochaineEtape,
+  type RestoInfoIndex,
+} from './admin-utils';
 
 const CarteTracking = dynamic(() => import('./CarteTracking'), { ssr: false });
 
@@ -64,6 +73,7 @@ type ReglagesApi = {
     pourboires: number[];
     majoration?: Majoration;
     logoUrl?: string | null;
+    nomSite?: string | null;
   };
   pauseActive: boolean;
 };
@@ -135,6 +145,31 @@ export default function PageAdmin() {
   const [trackingLivreurs, setTrackingLivreurs] = useState<
     (LivreurGestion & { commandesEnCours?: { ref: string; titre: string; statut: string }[] })[]
   >([]);
+  const [restosIndex, setRestosIndex] = useState<RestoInfoIndex[]>([]);
+  const [sonActif, setSonActif] = useState(true);
+  const sonActifRef = useRef(true);
+  const seenCmdIdsRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    sonActifRef.current = sonActif;
+  }, [sonActif]);
+
+  useEffect(() => {
+    fetch('/restos.json')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => Array.isArray(d) && setRestosIndex(d))
+      .catch(() => {});
+  }, []);
+
+  async function basculerSon() {
+    if (!sonActif) {
+      await activerAlertesNavigateur();
+      setSonActif(true);
+      declencherAlerte('🔔 Alertes sonores activées', 'Vous serez prévenu dès qu’une commande arrive.');
+    } else {
+      setSonActif(false);
+    }
+  }
 
   const chargerTracking = useCallback(async () => {
     const r = await fetch('/api/admin/tracking', { credentials: 'same-origin' }).catch(() => null);
@@ -203,11 +238,12 @@ export default function PageAdmin() {
     setMajId(c.id);
     setNotifBanner(null);
     try {
+      const restoInfo = infoRestoPourCommande(c);
       const res = await fetch('/api/admin/notifier-resto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ commande_id: c.id, canal }),
+        body: JSON.stringify({ commande_id: c.id, canal, telephone_resto: restoInfo.telephone || undefined }),
       });
       const d = await res.json().catch(() => null);
       if (!res.ok) {
@@ -269,11 +305,33 @@ export default function PageAdmin() {
         fetch('/api/admin/clients', { credentials: 'same-origin' }),
         fetch('/api/admin/livreurs', { credentials: 'same-origin' }),
         fetch('/api/admin/restaurants', { credentials: 'same-origin' }),
+        fetch('/api/admin/tracking', { credentials: 'same-origin' }),
       );
     }
     const res = await Promise.all(reqs);
     if (res[0]?.ok) setStats((await res[0].json()).stats ?? null);
-    if (res[1]?.ok) setCommandes((await res[1].json()).commandes ?? []);
+    if (res[1]?.ok) {
+      const liste: CommandeSuivi[] = (await res[1].json()).commandes ?? [];
+      setCommandes(liste);
+      // Détection en temps réel d'une nouvelle commande (admin) ou nouvelle course affectée (sous-livreur)
+      const idsActuels = new Set(liste.map((c) => c.id));
+      if (seenCmdIdsRef.current !== null) {
+        const nouvelles = liste.filter(
+          (c) => !seenCmdIdsRef.current!.has(c.id) && c.statut !== 'livree' && c.statut !== 'annulee',
+        );
+        if (nouvelles.length > 0 && sonActifRef.current) {
+          const premiere = nouvelles[0];
+          const titre =
+            role === 'livreur'
+              ? `🛵 Nouvelle course affectée — N° ${premiere.ref}`
+              : `🔔 Nouvelle commande — N° ${premiere.ref}`;
+          const corps = `${premiere.titre} · ${premiere.client_nom} · ${fmtPrix(premiere.total)}`;
+          declencherAlerte(titre, corps);
+          setNotifBanner({ texte: `${titre} (${corps})` });
+        }
+      }
+      seenCmdIdsRef.current = idsActuels;
+    }
     if (res[2]?.ok) setReglages((await res[2].json()) as ReglagesApi);
     if (res[3]?.ok) {
       const d = await res[3].json();
@@ -287,6 +345,7 @@ export default function PageAdmin() {
       setTotalARecuperer(Number(dl.totalARecuperer ?? 0));
     }
     if (res[5]?.ok) setRestaurants((await res[5].json()).restaurants ?? []);
+    if (res[6]?.ok) setTrackingLivreurs((await res[6].json()).livreurs ?? []);
   }, []);
 
   useEffect(() => {
@@ -302,12 +361,12 @@ export default function PageAdmin() {
       .finally(() => setChargement(false));
   }, [chargerTout]);
 
-  // Auto-refresh commandes toutes les 20s
+  // Auto-refresh temps réel commandes + tracking toutes les 10s
   useEffect(() => {
     if (!user) return;
     const t = setInterval(() => {
       if (!document.hidden) chargerTout(user.role);
-    }, 20000);
+    }, 10000);
     return () => clearInterval(t);
   }, [user, chargerTout]);
 
@@ -398,6 +457,81 @@ export default function PageAdmin() {
     setSwitchBusy(null);
   }
 
+  const restosParSlug = useMemo(() => {
+    const m = new Map<string, RestoInfoIndex>();
+    for (const r of restosIndex) m.set(r.slug, r);
+    return m;
+  }, [restosIndex]);
+
+  const restosParNom = useMemo(() => {
+    const m = new Map<string, RestoInfoIndex>();
+    for (const r of restosIndex) m.set(r.nom.trim().toLowerCase(), r);
+    return m;
+  }, [restosIndex]);
+
+  const infoRestoPourCommande = useCallback(
+    (c: CommandeSuivi) => {
+      const gestion = c.resto_slug ? restaurants.find((r) => r.slug === c.resto_slug) : undefined;
+      const statique =
+        (c.resto_slug ? restosParSlug.get(c.resto_slug) : undefined) ??
+        restosParNom.get((c.titre || '').trim().toLowerCase());
+      return {
+        telephone: gestion?.telephone || c.resto_telephone || statique?.telephone || '',
+        adresse: gestion?.adresse || statique?.adresse || '',
+        position: gestion?.position ?? statique?.position ?? null,
+      };
+    },
+    [restaurants, restosParSlug, restosParNom],
+  );
+
+  // Nombre de commandes en cours par livreur + positions GPS temps réel pour aider le dispatch
+  const enCoursParLivreur = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of commandes) {
+      if (!c.livreur_id || c.statut === 'livree' || c.statut === 'annulee') continue;
+      counts.set(c.livreur_id, (counts.get(c.livreur_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [commandes]);
+
+  const gpsParLivreur = useMemo(() => {
+    const m = new Map<string, { lat: number; lng: number; at?: string | null }>();
+    for (const l of trackingLivreurs) {
+      if (typeof l.last_lat === 'number' && typeof l.last_lng === 'number') {
+        m.set(l.id, { lat: l.last_lat, lng: l.last_lng, at: l.last_seen_at });
+      }
+    }
+    for (const l of livreurs) {
+      if (!m.has(l.id) && typeof l.last_lat === 'number' && typeof l.last_lng === 'number') {
+        m.set(l.id, { lat: l.last_lat, lng: l.last_lng, at: l.last_seen_at });
+      }
+    }
+    return m;
+  }, [trackingLivreurs, livreurs]);
+
+  const optionsLivreursPourCommande = useCallback(
+    (c: CommandeSuivi) => {
+      const restoInfo = infoRestoPourCommande(c);
+      return livreurs
+        .filter((l) => l.actif)
+        .map((l) => {
+          const nbEnCours = enCoursParLivreur.get(l.id) ?? 0;
+          const posLiv = gpsParLivreur.get(l.id);
+          const distKm = posLiv && restoInfo.position ? distanceEnKm(posLiv, restoInfo.position) : null;
+          const label = `${l.nom} · ${nbEnCours} cmd · ${formaterDistance(distKm)}${l.disponible ? '' : ' (occupé)'}`;
+          return { l, nbEnCours, distKm, label };
+        })
+        .sort((a, b) => {
+          if (a.l.disponible !== b.l.disponible) return a.l.disponible ? -1 : 1;
+          if (a.distKm !== null && b.distKm !== null) return a.distKm - b.distKm;
+          if (a.distKm !== null) return -1;
+          if (b.distKm !== null) return 1;
+          return a.nbEnCours - b.nbEnCours;
+        });
+    },
+    [livreurs, enCoursParLivreur, gpsParLivreur, infoRestoPourCommande],
+  );
+
   const commandesFiltrees = useMemo(() => {
     const term = qCmd.trim().toLowerCase();
     return commandes.filter((c) => {
@@ -480,10 +614,20 @@ export default function PageAdmin() {
               {pauseActive ? 'Site en pause' : 'Site ouvert'} · {user.role}
             </p>
           </div>
-          <h1 className="m-0 truncate text-lg font-extrabold sm:text-2xl">{user.nom || 'Administration'}</h1>
+          <h1 className="m-0 truncate text-lg font-extrabold sm:text-2xl">
+            {user.role === 'admin' ? (reglages?.effectif.nomSite || user.nom || 'Administration') : (user.nom || 'Espace Livreur')}
+          </h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={basculerSon}
+            className={`h-9 rounded-xl px-3 text-xs font-extrabold transition ${sonActif ? 'bg-amber-400 text-ink shadow-sm' : 'bg-white/15 text-white/80 hover:bg-white/25'}`}
+            title="Sonnerie et notification navigateur dès qu'une commande arrive"
+          >
+            {sonActif ? '🔔 Son actif' : '🔕 Son coupé'}
+          </button>
           <button
             type="button"
             onClick={basculerGps}
@@ -782,33 +926,38 @@ export default function PageAdmin() {
 
           {commandesFiltrees.length === 0 ? (
             <div className="rounded-3xl bg-white p-8 text-center text-sm text-muted">Aucune commande dans ce filtre.</div>
-          ) : mode === 'pc' ? (
-            /* TABLEAU CLAIR MODE PC */
+          ) : mode === 'pc' && user.role === 'admin' ? (
+            /* TABLEAU CLAIR MODE PC (ADMIN) */
             <div className="overflow-x-auto rounded-3xl border border-black/5 bg-white p-4 shadow-sm">
               <table className="w-full border-collapse text-left text-xs">
                 <thead>
                   <tr className="border-b border-black/10 text-[11px] font-extrabold uppercase text-muted">
                     <th className="py-2.5 pr-3">N° / Date</th>
-                    <th className="py-2.5 pr-3">Restaurant & Articles</th>
-                    <th className="py-2.5 pr-3">Client & Adresse</th>
+                    <th className="py-2.5 pr-3">Restaurant &amp; Articles</th>
+                    <th className="py-2.5 pr-3">Client &amp; Adresse</th>
                     <th className="py-2.5 pr-3">Total</th>
-                    <th className="py-2.5 pr-3">Livreur</th>
-                    <th className="py-2.5 text-right">Statut & Actions</th>
+                    <th className="py-2.5 pr-3">Livreur (cmds · distance)</th>
+                    <th className="py-2.5 text-right">Statut &amp; Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {commandesFiltrees.map((c) => {
                     const badge = BADGE_MAP[c.statut] ?? STATUTS[0];
                     const busy = majId === c.id;
+                    const restoInfo = infoRestoPourCommande(c);
+                    const optsLiv = optionsLivreursPourCommande(c);
+                    const livAssigne = c.livreur_id ? livreurs.find((x) => x.id === c.livreur_id) : null;
+                    const nextStep = prochaineEtape(c.statut);
                     return (
                       <tr key={c.id} className="border-b border-black/5 align-top hover:bg-[#f8f9fc]">
                         <td className="py-3 pr-3 whitespace-nowrap">
                           <div className="font-extrabold text-ink">N° {c.ref}</div>
                           <div className="text-[11px] text-muted">{fmtDate(c.creee)}</div>
                         </td>
-                        <td className="py-3 pr-3 max-w-[260px]">
+                        <td className="py-3 pr-3 max-w-[270px]">
                           <div className="font-extrabold text-ink">{c.titre}</div>
-                          <ul className="m-0 mt-1 list-none space-y-0.5 p-0 text-[11px] text-muted">
+                          {restoInfo.adresse && <div className="text-[11px] text-muted">📍 {restoInfo.adresse}</div>}
+                          <ul className="m-0 mt-1 list-none space-y-0.5 p-0 text-[11px] text-ink/80">
                             {(c.lignes ?? []).map((l, i) => (
                               <li key={i}>• {l}</li>
                             ))}
@@ -819,27 +968,32 @@ export default function PageAdmin() {
                                 🍽️ WA resto
                               </button>
                               <button type="button" disabled={busy} onClick={() => informerResto(c, 'email')} className="rounded-lg border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold text-ink">
-                                📧 Email resto
+                                📧 Email
                               </button>
-                              {c.resto_telephone && (
-                                <a href={`tel:${c.resto_telephone}`} className="rounded-lg border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold text-ink">
+                              {restoInfo.telephone && (
+                                <a href={`tel:${restoInfo.telephone}`} className="rounded-lg border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold text-ink">
                                   📞 Resto
+                                </a>
+                              )}
+                              {(restoInfo.position || restoInfo.adresse) && (
+                                <a href={lienGoogleMaps(restoInfo.adresse || c.titre, restoInfo.position)} target="_blank" rel="noreferrer" className="rounded-lg border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold text-ink">
+                                  🗺️
                                 </a>
                               )}
                               {c.resto_notifie_at && (
                                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">
-                                  ✅ Resto informé
+                                  ✅ Informé
                                 </span>
                               )}
                             </div>
                           )}
                         </td>
-                        <td className="py-3 pr-3 max-w-[220px]">
+                        <td className="py-3 pr-3 max-w-[230px]">
                           <div className="font-extrabold text-ink">{c.client_nom}</div>
                           <div className="text-[11px] text-muted">+{c.client_telephone}</div>
                           <div className="text-[11px] text-muted">{c.adresse}</div>
-                          {c.note && <div className="text-[11px] italic text-amber-800">📝 {c.note}</div>}
-                          <div className="mt-1 flex gap-1">
+                          {c.note && <div className="mt-0.5 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">📝 {c.note}</div>}
+                          <div className="mt-1.5 flex gap-1">
                             <a href={`tel:+${c.client_telephone}`} className="rounded border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold">📞</a>
                             <a
                               href={`https://wa.me/${c.client_telephone}?text=${encodeURIComponent(`Bonjour ${c.client_nom}, concernant votre commande N° ${c.ref} (${c.titre}) : `)}`}
@@ -848,6 +1002,9 @@ export default function PageAdmin() {
                               className="rounded bg-[#25D366] px-2 py-0.5 text-[10px] font-extrabold text-white"
                             >
                               WA
+                            </a>
+                            <a href={lienGoogleMaps(c.adresse)} target="_blank" rel="noreferrer" className="rounded border border-black/10 bg-white px-2 py-0.5 text-[10px] font-bold">
+                              🗺️
                             </a>
                           </div>
                         </td>
@@ -859,54 +1016,69 @@ export default function PageAdmin() {
                             </div>
                           )}
                         </td>
-                        <td className="py-3 pr-3">
-                          {user.role === 'admin' ? (
-                            <div className="flex flex-col gap-1.5">
-                              <select
-                                disabled={busy}
-                                value={c.livreur_id ?? ''}
-                                onChange={(e) => {
-                                  const idLiv = e.target.value || null;
-                                  const liv = livreurs.find((x) => x.id === idLiv);
-                                  majCommande(c.id, { livreur_id: idLiv, livreur_nom: liv?.nom ?? null });
-                                }}
-                                className="h-8 rounded-lg border border-black/10 bg-white px-2 text-[11px] font-bold"
-                              >
-                                <option value="">Non assigné</option>
-                                {livreurs.filter((l) => l.actif).map((l) => (
-                                  <option key={l.id} value={l.id}>{l.nom}</option>
-                                ))}
-                              </select>
+                        <td className="py-3 pr-3 min-w-[210px]">
+                          <div className="flex flex-col gap-1.5">
+                            <select
+                              disabled={busy}
+                              value={c.livreur_id ?? ''}
+                              onChange={(e) => {
+                                const idLiv = e.target.value || null;
+                                const liv = livreurs.find((x) => x.id === idLiv);
+                                majCommande(c.id, { livreur_id: idLiv, livreur_nom: liv?.nom ?? null });
+                              }}
+                              className="h-8 w-full rounded-lg border border-black/10 bg-white px-2 text-[11px] font-bold"
+                            >
+                              <option value="">Non assigné</option>
+                              {optsLiv.map(({ l, label }) => (
+                                <option key={l.id} value={l.id}>{label}</option>
+                              ))}
+                            </select>
+                            <div className="flex items-center gap-1">
                               <button
                                 type="button"
                                 disabled={busy}
                                 onClick={() => majCommande(c.id, { prendre_moi_meme: true })}
-                                className="h-7 rounded-lg bg-primary/10 px-2 text-[10px] font-extrabold text-primary hover:bg-primary/20"
+                                className="h-7 flex-1 rounded-lg bg-primary/10 px-2 text-[10px] font-extrabold text-primary hover:bg-primary/20"
                               >
-                                🙋 Prendre moi-même
+                                🙋 Prendre
                               </button>
+                              {livAssigne?.telephone && (
+                                <a
+                                  href={`tel:+${livAssigne.telephone}`}
+                                  className="inline-flex h-7 items-center rounded-lg border border-black/10 bg-white px-2 text-[10px] font-extrabold text-ink"
+                                  title={`Appeler ${livAssigne.nom}`}
+                                >
+                                  📞 Livreur
+                                </a>
+                              )}
                             </div>
-                          ) : (
-                            <span className="font-bold text-ink">🛵 {c.livreur_nom || 'Vous'}</span>
-                          )}
+                          </div>
                         </td>
                         <td className="py-3 text-right">
                           <div className="mb-1.5 flex justify-end">
                             <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${badge.cls}`}>{badge.label}</span>
                           </div>
+                          {nextStep && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => majCommande(c.id, { statut: nextStep.cle })}
+                              className={`mb-1.5 w-full rounded-lg px-2.5 py-1.5 text-[11px] font-extrabold shadow-sm ${nextStep.cls}`}
+                            >
+                              {nextStep.label}
+                            </button>
+                          )}
                           <div className="flex flex-wrap justify-end gap-1">
-                            {STATUTS.filter((s) => s.cle !== c.statut).map((s) => (
+                            {STATUTS.filter((s) => s.cle !== c.statut && s.cle !== nextStep?.cle).map((s) => (
                               <button
                                 key={s.cle}
                                 type="button"
                                 disabled={busy}
                                 onClick={() => majCommande(c.id, { statut: s.cle })}
                                 className={`rounded-lg px-2 py-1 text-[10px] font-extrabold ${
-                                  s.cle === 'livree'
-                                    ? 'bg-emerald-600 text-white'
-                                    : s.cle === 'annulee'
-                                      ? 'bg-red-50 text-red-700'
-                                      : 'border border-black/10 bg-white text-ink hover:bg-black/5'
+                                  s.cle === 'annulee'
+                                    ? 'bg-red-50 text-red-700'
+                                    : 'border border-black/10 bg-white text-ink hover:bg-black/5'
                                 }`}
                               >
                                 {s.label}
@@ -921,93 +1093,170 @@ export default function PageAdmin() {
               </table>
             </div>
           ) : (
-            /* CARTES TACTILES SIMPLIFIÉES MODE TÉLÉPHONE */
+            /* FICHE COURSE COMPLÈTE (SOUS-LIVREUR PC/MOBILE & ADMIN MOBILE) — MÊMES DÉTAILS QUE L'EMAIL */
             <div className="flex flex-col gap-3">
               {commandesFiltrees.map((c) => {
                 const badge = BADGE_MAP[c.statut] ?? STATUTS[0];
                 const busy = majId === c.id;
+                const restoInfo = infoRestoPourCommande(c);
+                const optsLiv = optionsLivreursPourCommande(c);
+                const livAssigne = c.livreur_id ? livreurs.find((x) => x.id === c.livreur_id) : null;
+                const nextStep = prochaineEtape(c.statut);
                 return (
-                  <article key={c.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm">
+                  <article key={c.id} className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm sm:p-5">
+                    {/* En-tête fiche */}
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-base font-extrabold text-ink">{c.titre}</span>
+                          <span className="text-base font-extrabold text-ink">N° {c.ref} — {c.titre}</span>
                           <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${badge.cls}`}>{badge.label}</span>
                         </div>
-                        <p className="m-0 mt-0.5 text-xs text-muted">N° {c.ref} · {fmtDate(c.creee)}</p>
+                        <p className="m-0 mt-0.5 text-xs text-muted">{fmtDate(c.creee)} {c.livreur_nom ? `· 🛵 ${c.livreur_nom}` : ''}</p>
                       </div>
-                      <p className="m-0 text-base font-extrabold text-primary">{fmtPrix(c.total)}</p>
+                      <div className="text-right">
+                        <p className="m-0 text-lg font-extrabold text-primary">{fmtPrix(c.total)}</p>
+                        <p className="m-0 text-[10px] font-bold text-muted">À encaisser</p>
+                        {Number(c.part_admin ?? 0) > 0 && (
+                          <p className="m-0 text-[10px] font-extrabold text-emerald-700">
+                            {user.role === 'livreur' ? `Part admin : ${fmtPrix(Number(c.part_admin))}` : `Ta part : +${fmtPrix(Number(c.part_admin))}`}
+                          </p>
+                        )}
+                      </div>
                     </div>
 
-                    <p className="m-0 mt-2 text-xs font-bold text-ink">👤 {c.client_nom} · 📍 {c.adresse}</p>
-                    <ul className="mt-2 space-y-0.5 rounded-2xl bg-[#f6f7fb] p-3 text-xs text-ink">
-                      {(c.lignes ?? []).map((l, i) => (
-                        <li key={i}>• {l}</li>
-                      ))}
-                    </ul>
-
-                    <div className="mt-2.5 grid grid-cols-2 gap-2">
-                      <a href={`tel:+${c.client_telephone}`} className="flex h-11 items-center justify-center rounded-2xl border border-black/10 text-xs font-extrabold text-ink">
-                        📞 Appeler client
-                      </a>
-                      <a
-                        href={`https://wa.me/${c.client_telephone}?text=${encodeURIComponent(`Bonjour ${c.client_nom}, concernant votre commande N° ${c.ref} : `)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex h-11 items-center justify-center rounded-2xl bg-[#25D366] text-xs font-extrabold text-white"
+                    {/* Gros bouton 1-clic étape suivante */}
+                    {nextStep && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => majCommande(c.id, { statut: nextStep.cle })}
+                        className={`mt-3 h-12 w-full rounded-2xl text-sm font-extrabold shadow-sm transition active:scale-[0.99] disabled:opacity-50 ${nextStep.cls}`}
                       >
-                        💬 WA client
-                      </a>
+                        {nextStep.label}
+                      </button>
+                    )}
+
+                    {/* Bloc Articles + Remarque */}
+                    <div className="mt-3 rounded-2xl bg-[#f6f7fb] p-3.5">
+                      <p className="m-0 text-[11px] font-extrabold uppercase tracking-wide text-muted">🧾 Articles à récupérer</p>
+                      <ul className="m-0 mt-1.5 list-none space-y-1 p-0 text-sm font-semibold text-ink">
+                        {(c.lignes ?? []).map((l, i) => (
+                          <li key={i}>• {l}</li>
+                        ))}
+                      </ul>
+                      {c.note && (
+                        <p className="m-0 mt-2 rounded-xl bg-amber-100 px-3 py-2 text-xs font-extrabold text-amber-950">
+                          📝 Remarque client : {c.note}
+                        </p>
+                      )}
                     </div>
 
+                    {/* Bloc Restaurant */}
                     {c.type === 'repas' && (
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-2xl bg-amber-50/70 p-2.5">
-                        <span className="text-[11px] font-extrabold text-ink">🍽️ Resto :</span>
-                        <button type="button" disabled={busy} onClick={() => informerResto(c, 'whatsapp')} className="h-8 rounded-xl bg-[#25D366] px-2.5 text-[11px] font-extrabold text-white">
-                          💬 Informer WA
-                        </button>
-                        <button type="button" disabled={busy} onClick={() => informerResto(c, 'email')} className="h-8 rounded-xl border border-black/10 bg-white px-2.5 text-[11px] font-bold text-ink">
-                          📧 Email
-                        </button>
-                        {c.resto_telephone && (
-                          <a href={`tel:${c.resto_telephone}`} className="inline-flex h-8 items-center rounded-xl border border-black/10 bg-white px-2.5 text-[11px] font-bold text-ink">
-                            📞 Appeler
-                          </a>
-                        )}
-                        {c.resto_notifie_at && (
-                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">✅ Informé</span>
-                        )}
+                      <div className="mt-2.5 rounded-2xl border border-amber-200 bg-amber-50/70 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-1">
+                          <p className="m-0 text-xs font-extrabold text-ink">🏪 Restaurant : {c.titre}</p>
+                          {c.resto_notifie_at && (
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">✅ Informé</span>
+                          )}
+                        </div>
+                        {restoInfo.adresse && <p className="m-0 mt-0.5 text-xs text-muted">📍 {restoInfo.adresse}</p>}
+                        {restoInfo.telephone && <p className="m-0 mt-0.5 text-xs font-bold text-ink">📞 {restoInfo.telephone}</p>}
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <button type="button" disabled={busy} onClick={() => informerResto(c, 'whatsapp')} className="h-9 rounded-xl bg-[#25D366] px-3 text-xs font-extrabold text-white">
+                            💬 Informer WA
+                          </button>
+                          {restoInfo.telephone && (
+                            <a href={`tel:${restoInfo.telephone}`} className="inline-flex h-9 items-center rounded-xl border border-black/10 bg-white px-3 text-xs font-extrabold text-ink">
+                              📞 Appeler resto
+                            </a>
+                          )}
+                          <button type="button" disabled={busy} onClick={() => informerResto(c, 'email')} className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs font-bold text-ink">
+                            📧 Email
+                          </button>
+                          {(restoInfo.position || restoInfo.adresse) && (
+                            <a
+                              href={lienGoogleMaps(restoInfo.adresse || c.titre, restoInfo.position)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-9 items-center rounded-xl border border-black/10 bg-white px-3 text-xs font-extrabold text-primary"
+                            >
+                              🗺️ Itinéraire
+                            </a>
+                          )}
+                        </div>
                       </div>
                     )}
 
+                    {/* Bloc Client */}
+                    <div className="mt-2.5 rounded-2xl border border-black/10 bg-white p-3">
+                      <p className="m-0 text-xs font-extrabold text-ink">👤 Client : {c.client_nom}</p>
+                      <p className="m-0 mt-0.5 text-xs font-bold text-muted">📞 +{c.client_telephone}</p>
+                      <p className="m-0 mt-0.5 text-xs text-ink">📍 {c.adresse}</p>
+                      <div className="mt-2 grid grid-cols-3 gap-1.5">
+                        <a href={`tel:+${c.client_telephone}`} className="flex h-10 items-center justify-center rounded-xl border border-black/10 bg-[#f6f7fb] text-xs font-extrabold text-ink">
+                          📞 Appeler
+                        </a>
+                        <a
+                          href={`https://wa.me/${c.client_telephone}?text=${encodeURIComponent(`Bonjour ${c.client_nom}, concernant votre commande N° ${c.ref} (${c.titre}) : `)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex h-10 items-center justify-center rounded-xl bg-[#25D366] text-xs font-extrabold text-white"
+                        >
+                          💬 WA
+                        </a>
+                        <a
+                          href={lienGoogleMaps(c.adresse)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex h-10 items-center justify-center rounded-xl bg-primary/10 text-xs font-extrabold text-primary"
+                        >
+                          🗺️ GPS
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Bloc Dispatch Admin (avec nb commandes en cours + distance en km) */}
                     {user.role === 'admin' && (
-                      <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-2xl bg-[#f6f7fb] p-2.5">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => majCommande(c.id, { prendre_moi_meme: true })}
-                          className="h-9 rounded-xl bg-primary px-3 text-xs font-extrabold text-white"
-                        >
-                          🙋 Prendre
-                        </button>
-                        <select
-                          disabled={busy}
-                          value={c.livreur_id ?? ''}
-                          onChange={(e) => {
-                            const idLiv = e.target.value || null;
-                            const liv = livreurs.find((x) => x.id === idLiv);
-                            majCommande(c.id, { livreur_id: idLiv, livreur_nom: liv?.nom ?? null });
-                          }}
-                          className="h-9 min-w-[140px] flex-1 rounded-xl border border-black/10 bg-white px-2.5 text-xs font-bold"
-                        >
-                          <option value="">Affecter un sous-livreur…</option>
-                          {livreurs.filter((l) => l.actif).map((l) => (
-                            <option key={l.id} value={l.id}>🛵 {l.nom}</option>
-                          ))}
-                        </select>
+                      <div className="mt-2.5 flex flex-col gap-2 rounded-2xl bg-[#f6f7fb] p-3">
+                        <p className="m-0 text-[11px] font-extrabold uppercase tracking-wide text-muted">🛵 Affecter un livreur (cmds en cours · distance)</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => majCommande(c.id, { prendre_moi_meme: true })}
+                            className="h-10 rounded-xl bg-primary px-3 text-xs font-extrabold text-white"
+                          >
+                            🙋 Prendre
+                          </button>
+                          <select
+                            disabled={busy}
+                            value={c.livreur_id ?? ''}
+                            onChange={(e) => {
+                              const idLiv = e.target.value || null;
+                              const liv = livreurs.find((x) => x.id === idLiv);
+                              majCommande(c.id, { livreur_id: idLiv, livreur_nom: liv?.nom ?? null });
+                            }}
+                            className="h-10 min-w-[160px] flex-1 rounded-xl border border-black/10 bg-white px-2.5 text-xs font-bold"
+                          >
+                            <option value="">Choisir un sous-livreur…</option>
+                            {optsLiv.map(({ l, label }) => (
+                              <option key={l.id} value={l.id}>🛵 {label}</option>
+                            ))}
+                          </select>
+                          {livAssigne?.telephone && (
+                            <a
+                              href={`tel:+${livAssigne.telephone}`}
+                              className="inline-flex h-10 items-center rounded-xl border border-black/10 bg-white px-3 text-xs font-extrabold text-ink"
+                            >
+                              📞 Livreur
+                            </a>
+                          )}
+                        </div>
                       </div>
                     )}
 
+                    {/* Autres statuts manuels */}
                     <div className="mt-2.5 grid grid-cols-3 gap-1.5">
                       {STATUTS.map((s) => (
                         <button
@@ -1015,7 +1264,7 @@ export default function PageAdmin() {
                           type="button"
                           disabled={busy || c.statut === s.cle}
                           onClick={() => majCommande(c.id, { statut: s.cle })}
-                          className={`h-10 rounded-xl text-[11px] font-extrabold disabled:opacity-40 ${
+                          className={`h-9 rounded-xl text-[11px] font-extrabold disabled:opacity-40 ${
                             c.statut === s.cle
                               ? 'bg-ink text-white'
                               : s.cle === 'livree'

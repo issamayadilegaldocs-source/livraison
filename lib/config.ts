@@ -78,6 +78,8 @@ export const ConfigSchema = z.object({
   majoration: MajorationSchema.nullable().optional(),
   // absent : livreur.json ; null : logo générique ; string : URL du logo personnalisé (upload ou lien).
   logoUrl: z.string().trim().max(500).nullable().optional(),
+  // absent : livreur.json ; null : nom par défaut ; string : nom affiché du site (en-tête, pied de page, admin).
+  nomSite: z.string().trim().min(1).max(60).nullable().optional(),
   // restoSlug → platId → correction
   plats: z.record(z.string(), z.record(z.string(), CorrectionSchema)).default({}),
 });
@@ -100,7 +102,7 @@ export function pauseEnCours(c: Pick<Config, 'pause' | 'retour'>, maintenant: Da
 }
 
 /** Horaires et frais en vigueur : ceux du livreur (page de config) sinon ceux de livreur.json. */
-export function reglages(livreur: Livreur, c: Config): { service: Service | undefined; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; commission: Commission | undefined; promos: Promo[]; majoration: Majoration | undefined; logoUrl: string | null } {
+export function reglages(livreur: Livreur, c: Config): { service: Service | undefined; livraison: ConfLivraison; fraisService: FraisService | null; livraisonGratuite: LivraisonGratuite | null; colis: TarifColis; restosFermes: string[]; commandeMin: number | null; supplement: Supplement | null; annonce: string | null; pourboires: number[]; commission: Commission | undefined; promos: Promo[]; majoration: Majoration | undefined; logoUrl: string | null; nomSite: string } {
   return {
     service: c.service === undefined ? livreur.service : (c.service ?? undefined),
     livraison: c.frais ? { ...livreur.livraison, ...c.frais } : livreur.livraison,
@@ -116,6 +118,7 @@ export function reglages(livreur: Livreur, c: Config): { service: Service | unde
     promos: (c.promos ?? livreur.promos ?? []).filter((p) => p.actif),
     majoration: c.majoration === undefined ? livreur.majoration : (c.majoration ?? undefined),
     logoUrl: c.logoUrl === undefined ? (livreur.logo ?? null) : c.logoUrl,
+    nomSite: c.nomSite?.trim() || livreur.nom,
   };
 }
 

@@ -29,12 +29,13 @@ describe('corrigerPlats', () => {
 describe('reglages / lireConfig', () => {
   const l = { ...getLivreur(), service: { ouvre: '11:00', ferme: '23:00' } };
   it('config vide : réglages de livreur.json', () => {
-    expect(reglages(l, lireConfig(null))).toEqual({ restosFermes: [], commandeMin: null, supplement: null, annonce: null, pourboires: [1, 2, 3, 5], fraisService: null, livraisonGratuite: null, colis: { actif: true, livraison: l.livraison, supplements: { petit: 0, moyen: 0, grand: 0 }, urgent: 0, nuit: null }, commission: undefined, majoration: l.majoration, logoUrl: null, promos: [], service: l.service, livraison: l.livraison });
+    expect(reglages(l, lireConfig(null))).toEqual({ restosFermes: [], commandeMin: null, supplement: null, annonce: null, pourboires: [1, 2, 3, 5], fraisService: null, livraisonGratuite: null, colis: { actif: true, livraison: l.livraison, supplements: { petit: 0, moyen: 0, grand: 0 }, urgent: 0, nuit: null }, commission: undefined, majoration: l.majoration, logoUrl: null, nomSite: l.nom, promos: [], service: l.service, livraison: l.livraison });
   });
-  it('config avec majoration et logoUrl : pris en compte en direct', () => {
-    const r = reglages(l, lireConfig({ majoration: { tous: { pourcent: 10 } }, logoUrl: 'https://example.com/logo.png' }));
+  it('config avec majoration, logoUrl et nomSite : pris en compte en direct', () => {
+    const r = reglages(l, lireConfig({ majoration: { tous: { pourcent: 10 } }, logoUrl: 'https://example.com/logo.png', nomSite: 'Mon Service Express' }));
     expect(r.majoration).toEqual({ tous: { pourcent: 10 } });
     expect(r.logoUrl).toBe('https://example.com/logo.png');
+    expect(r.nomSite).toBe('Mon Service Express');
   });
   it('null = plus d’horaires ; frais du livreur fusionnés (facteurRoute gardé)', () => {
     const r = reglages(l, lireConfig({ service: null, frais: { base: 1, parKm: 0.5, min: 1, max: 12, rayonMaxKm: 15 } }));

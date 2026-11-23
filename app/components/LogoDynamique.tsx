@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { LogoLivreur } from '@/lib/logo';
 import { useReglages } from '@/lib/reglages';
 
@@ -20,4 +21,23 @@ export default function LogoDynamique({
       <LogoLivreur couleur={couleur} taille={36} />
     </span>
   );
+}
+
+export function NomSiteDynamique({
+  nomDefaut,
+  ville,
+}: {
+  nomDefaut: string;
+  ville?: string;
+}) {
+  const r = useReglages();
+  const nom = r?.nomSite?.trim() || nomDefaut;
+
+  useEffect(() => {
+    if (ville && r?.nomSite?.trim()) {
+      document.title = `${r.nomSite.trim()} — livraison à ${ville}`;
+    }
+  }, [r?.nomSite, ville]);
+
+  return <>{nom}</>;
 }

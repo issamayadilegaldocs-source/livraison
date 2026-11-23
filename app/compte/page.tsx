@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from '@/app/components/Lien';
+import {
+  ajouterAdresse,
+  definirAdresseDefaut,
+  lireAdresses,
+  supprimerAdresse,
+  type AdresseClient,
+} from '@/lib/app-client';
 import { CLE_CLIENT } from '@/lib/client';
 
 const CarteTracking = dynamic(() => import('@/app/admin/CarteTracking'), { ssr: false });
@@ -33,6 +40,7 @@ type Commande = {
   client_nom: string;
   adresse: string;
   note: string | null;
+  resto_slug?: string | null;
   total: number;
   livreur_nom: string | null;
   livreur_position?: { lat: number; lng: number; at: string } | null;
@@ -143,10 +151,20 @@ function CarteCommande({ c }: { c: Commande }) {
         ))}
       </ul>
 
-      <p className="mt-2 text-xs text-muted">
-        📍 {c.adresse}
-        {c.note ? ` · 📝 ${c.note}` : ''}
-      </p>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="m-0 text-xs text-muted">
+          📍 {c.adresse}
+          {c.note ? ` · 📝 ${c.note}` : ''}
+        </p>
+        {c.type === 'repas' && (
+          <Link
+            href={c.resto_slug ? `/resto/${c.resto_slug}` : `/c/tout?q=${encodeURIComponent(c.titre)}`}
+            className="inline-flex h-8 items-center rounded-xl bg-primary/10 px-3 text-xs font-extrabold text-primary hover:bg-primary/20"
+          >
+            🔄 Recommander
+          </Link>
+        )}
+      </div>
     </article>
   );
 }
@@ -158,9 +176,27 @@ export default function PageCompte() {
   const [chargement, setChargement] = useState(true);
   const [user, setUser] = useState<Profil | null>(null);
   const [ongletAuth, setOngletAuth] = useState<'login' | 'register' | 'suivi'>('login');
-  const [ongletCompte, setOngletCompte] = useState<'commandes' | 'profil'>('commandes');
+  const [ongletCompte, setOngletCompte] = useState<'commandes' | 'adresses' | 'profil'>('commandes');
   const [commandes, setCommandes] = useState<Commande[]>([]);
+  const [adresses, setAdresses] = useState<AdresseClient[]>([]);
+  const [adrLabel, setAdrLabel] = useState<AdresseClient['label']>('Maison');
+  const [adrTexte, setAdrTexte] = useState('');
+  const [adrDetail, setAdrDetail] = useState('');
   const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    setAdresses(lireAdresses());
+  }, []);
+
+  function synchroniserAdresseActive(txt: string) {
+    setAdresse(txt);
+    try {
+      const prev = JSON.parse(localStorage.getItem(CLE_CLIENT) ?? '{}');
+      localStorage.setItem(CLE_CLIENT, JSON.stringify({ ...prev, adresse: txt }));
+    } catch {
+      /* ignore */
+    }
+  }
   const [erreur, setErreur] = useState('');
   const [envoi, setEnvoi] = useState(false);
 
@@ -214,9 +250,25 @@ export default function PageCompte() {
     if (!user) return;
     const t = setInterval(() => {
       if (!document.hidden) chargerCommandes();
-    }, 20000);
+    }, 8000);
     return () => clearInterval(t);
   }, [user, chargerCommandes]);
+
+  // Auto-rafraîchissement toutes les 8s pour le suivi invité tant que la commande est active
+  useEffect(() => {
+    if (!cmdSuivi || cmdSuivi.statut === 'livree' || cmdSuivi.statut === 'annulee') return;
+    if (!suiviRef.trim() || !suiviTel.trim()) return;
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      fetch(`/api/suivi?ref=${encodeURIComponent(suiviRef.trim())}&tel=${encodeURIComponent(suiviTel.trim())}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.commande) setCmdSuivi(d.commande);
+        })
+        .catch(() => {});
+    }, 8000);
+    return () => clearInterval(t);
+  }, [cmdSuivi, suiviRef, suiviTel]);
 
   async function connexion(e: React.FormEvent) {
     e.preventDefault();
@@ -491,18 +543,25 @@ export default function PageCompte() {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-1.5 rounded-2xl bg-black/5 p-1">
+      <div className="mt-4 grid grid-cols-3 gap-1.5 rounded-2xl bg-black/5 p-1">
         <button
           type="button"
           onClick={() => setOngletCompte('commandes')}
-          className={`h-11 rounded-xl text-sm font-extrabold ${ongletCompte === 'commandes' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
+          className={`h-11 rounded-xl text-xs font-extrabold sm:text-sm ${ongletCompte === 'commandes' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
         >
-          Mes commandes ({commandes.length})
+          Commandes ({commandes.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setOngletCompte('adresses')}
+          className={`h-11 rounded-xl text-xs font-extrabold sm:text-sm ${ongletCompte === 'adresses' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
+        >
+          📍 Adresses ({adresses.length})
         </button>
         <button
           type="button"
           onClick={() => setOngletCompte('profil')}
-          className={`h-11 rounded-xl text-sm font-extrabold ${ongletCompte === 'profil' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
+          className={`h-11 rounded-xl text-xs font-extrabold sm:text-sm ${ongletCompte === 'profil' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}
         >
           Mon profil
         </button>
@@ -543,6 +602,112 @@ export default function PageCompte() {
                 ))}
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {ongletCompte === 'adresses' && (
+        <div className="mt-4 flex flex-col gap-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!adrTexte.trim()) return;
+              const next = ajouterAdresse(adrLabel, adrTexte, adrDetail);
+              setAdresses(next);
+              if (next.length === 1) synchroniserAdresseActive(next[0].adresse);
+              setAdrTexte('');
+              setAdrDetail('');
+              setMsg('Adresse enregistrée.');
+            }}
+            className="flex flex-col gap-3 rounded-3xl bg-white p-5 shadow-sm"
+          >
+            <h2 className="m-0 text-base font-extrabold">Ajouter une adresse</h2>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(['Maison', 'Travail', 'Autre'] as const).map((lbl) => (
+                <button
+                  key={lbl}
+                  type="button"
+                  onClick={() => setAdrLabel(lbl)}
+                  className={`h-10 rounded-xl border text-xs font-extrabold ${
+                    adrLabel === lbl ? 'border-primary bg-primary/10 text-primary' : 'border-black/10 bg-white text-ink'
+                  }`}
+                >
+                  {lbl === 'Maison' ? '🏠 Maison' : lbl === 'Travail' ? '💼 Travail' : '📍 Autre'}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              required
+              value={adrTexte}
+              onChange={(e) => setAdrTexte(e.target.value)}
+              placeholder="Rue, quartier, repère (ex. Route Gremda km 3…)"
+              className={champ}
+            />
+            <input
+              type="text"
+              value={adrDetail}
+              onChange={(e) => setAdrDetail(e.target.value)}
+              placeholder="Étage, porte, code (optionnel)"
+              className={champ}
+            />
+            <button type="submit" className="h-11 rounded-2xl bg-primary text-sm font-extrabold text-white">
+              + Enregistrer cette adresse
+            </button>
+          </form>
+
+          {adresses.length === 0 ? (
+            <div className="rounded-3xl bg-white p-6 text-center text-xs text-muted">
+              Aucune adresse enregistrée pour le moment.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {adresses.map((a) => (
+                <div
+                  key={a.id}
+                  className={`flex items-start justify-between gap-3 rounded-3xl border p-4 shadow-sm ${
+                    a.defaut ? 'border-primary bg-primary/5' : 'border-black/5 bg-white'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-extrabold text-ink">
+                        {a.label === 'Maison' ? '🏠' : a.label === 'Travail' ? '💼' : '📍'} {a.label}
+                      </span>
+                      {a.defaut && (
+                        <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-extrabold text-white">
+                          Par défaut
+                        </span>
+                      )}
+                    </div>
+                    <p className="m-0 mt-1 text-xs font-semibold text-ink">{a.adresse}</p>
+                    {a.detail && <p className="m-0 mt-0.5 text-xs text-muted">{a.detail}</p>}
+                  </div>
+                  <div className="flex shrink-0 flex-col gap-1">
+                    {!a.defaut && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdresses(definirAdresseDefaut(a.id));
+                          synchroniserAdresseActive(a.adresse);
+                          setMsg(`Adresse « ${a.label} » définie par défaut.`);
+                        }}
+                        className="rounded-xl bg-ink px-2.5 py-1.5 text-[11px] font-extrabold text-white"
+                      >
+                        Utiliser
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setAdresses(supprimerAdresse(a.id))}
+                      className="rounded-xl border border-black/10 px-2.5 py-1 text-[11px] font-bold text-red-700"
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
