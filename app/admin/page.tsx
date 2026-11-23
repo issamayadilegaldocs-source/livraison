@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from '@/app/components/Lien';
-import type { ClientCRM, CommandeSuivi, LivreurGestion, ProfilUtilisateur, RestaurantGestion, StatutCommande } from '@/lib/plateforme';
+import type { BilanLivreur, ClientCRM, CommandeSuivi, LivreurGestion, ProfilUtilisateur, RestaurantGestion, StatutCommande } from '@/lib/plateforme';
 import type { Config } from '@/lib/config';
 import type { Promo } from '@/lib/commission';
 import ClientsPanel from './ClientsPanel';
@@ -15,6 +15,8 @@ type Stats = {
   enCours: number;
   livrees: number;
   chiffreAffaires: number;
+  aRecupererEquipe?: number;
+  aRendreAdmin?: number;
   totalClients: number;
   clientsAvecEmail: number;
   livreursActifs: number;
@@ -106,6 +108,8 @@ export default function PageAdmin() {
   const [clients, setClients] = useState<ClientCRM[]>([]);
   const [campagnes, setCampagnes] = useState<Campagne[]>([]);
   const [livreurs, setLivreurs] = useState<LivreurGestion[]>([]);
+  const [bilanLivreurs, setBilanLivreurs] = useState<Record<string, BilanLivreur>>({});
+  const [totalARecuperer, setTotalARecuperer] = useState(0);
   const [restaurants, setRestaurants] = useState<RestaurantGestion[]>([]);
   const [reglages, setReglages] = useState<ReglagesApi | null>(null);
 
@@ -166,7 +170,12 @@ export default function PageAdmin() {
       setClients(d.clients ?? []);
       setCampagnes(d.campagnes ?? []);
     }
-    if (res[4]?.ok) setLivreurs((await res[4].json()).livreurs ?? []);
+    if (res[4]?.ok) {
+      const dl = await res[4].json();
+      setLivreurs(dl.livreurs ?? []);
+      setBilanLivreurs(dl.bilan ?? {});
+      setTotalARecuperer(Number(dl.totalARecuperer ?? 0));
+    }
     if (res[5]?.ok) setRestaurants((await res[5].json()).restaurants ?? []);
   }, []);
 
@@ -418,20 +427,26 @@ export default function PageAdmin() {
             <p className="m-0 mt-1 text-2xl font-extrabold text-emerald-700">{stats.livreursDisponibles}/{stats.livreursActifs}</p>
             <p className="m-0 text-[11px] text-muted">disponibles</p>
           </div>
-          <div className="col-span-2 rounded-2xl bg-white p-3.5 shadow-sm sm:col-span-1">
-            <p className="m-0 text-[11px] font-bold uppercase text-muted">Restos gérés</p>
-            <p className="m-0 mt-1 text-2xl font-extrabold text-ink">+{stats.restosCustom}</p>
-            <p className="m-0 text-[11px] text-muted">{stats.restosDesactives} désactivé(s)</p>
-          </div>
+          <button
+            type="button"
+            onClick={() => user.role === 'admin' && setOnglet('livreurs')}
+            className="col-span-2 rounded-2xl bg-emerald-50 p-3.5 text-left shadow-sm border border-emerald-200 sm:col-span-1"
+          >
+            <p className="m-0 text-[11px] font-bold uppercase text-emerald-800">À récupérer (équipe)</p>
+            <p className="m-0 mt-1 text-lg font-extrabold text-emerald-700 sm:text-xl">{fmtPrix(stats.aRecupererEquipe ?? 0)}</p>
+            <p className="m-0 text-[11px] text-emerald-800/80">Gérer caisse →</p>
+          </button>
         </div>
       )}
 
-      {/* Bandeau dédié sous-livreur : activer ses alertes Push téléphone */}
+      {/* Bandeau dédié sous-livreur : bilan transparent + alertes Push téléphone */}
       {user.role === 'livreur' && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-3xl border border-amber-300 bg-amber-50 p-4">
           <div>
-            <p className="m-0 text-sm font-extrabold text-ink">🛵 Espace sous-livreur — Vos commandes affectées</p>
-            <p className="m-0 text-xs text-muted">Activez les alertes Push sur votre téléphone pour sonner dès qu’une commande vous est affectée (en plus de l’email).</p>
+            <p className="m-0 text-sm font-extrabold text-ink">🛵 Mes courses — {stats?.livrees ?? 0} livrée(s) · {stats?.enCours ?? 0} en cours</p>
+            <p className="m-0 mt-0.5 text-xs font-bold text-emerald-800">
+              Part à remettre à l’Admin : {fmtPrix(stats?.aRendreAdmin ?? 0)}
+            </p>
           </div>
           <a href="/api/push" className="inline-flex h-10 items-center rounded-xl bg-amber-500 px-4 text-xs font-extrabold text-white">
             🔔 Activer mes alertes Push
@@ -446,10 +461,10 @@ export default function PageAdmin() {
             ['commandes', `📦 ${user.role === 'livreur' ? 'Mes commandes' : 'Commandes'} (${stats?.enCours ?? commandes.length})`],
             ...(user.role === 'admin'
               ? ([
-                  ['reglages', '⚙️ Réglages & Tarifs'],
-                  ['clients', `👥 Clients CRM (${clients.length})`],
-                  ['livreurs', `🛵 Livreurs (${livreurs.length})`],
-                  ['restaurants', '🍽️ Restaurants'],
+                  ['livreurs', `🛵 Équipe & Gains (${livreurs.length})`],
+                  ['restaurants', '🍽️ Restos & Prix'],
+                  ['clients', `👥 Clients (${clients.length})`],
+                  ['reglages', '⚙️ Réglages'],
                 ] as const)
               : []),
           ] as const).map(([cle, label]) => (
@@ -581,29 +596,17 @@ export default function PageAdmin() {
             </a>
           </div>
 
-          {/* Accès directs aux écrans livreur historiques (authentifiés par session, sans ?cle=) */}
-          <a
-            href="/api/config"
-            className="flex items-center justify-between rounded-3xl bg-white p-4 shadow-sm border border-black/5"
-          >
-            <div>
-              <p className="m-0 text-sm font-extrabold text-ink">📱 Ouvrir l’interface livreur classique</p>
-              <p className="m-0 text-xs text-muted">Double prix resto/client, promos pas-à-pas, horaires…</p>
-            </div>
-            <span className="text-xl font-bold text-primary">›</span>
-          </a>
-
           {user.role === 'admin' && (
             <button
               type="button"
               onClick={() => setOnglet('livreurs')}
-              className="flex items-center justify-between rounded-3xl border border-black/5 bg-white p-4 text-left shadow-sm"
+              className="flex items-center justify-between rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-left shadow-sm"
             >
               <div>
-                <p className="m-0 text-sm font-extrabold text-ink">🛵 Gérer l’équipe livreurs ({livreurs.length})</p>
-                <p className="m-0 text-xs text-muted">Ajouter, modifier, disponibilité</p>
+                <p className="m-0 text-sm font-extrabold text-emerald-900">💰 Équipe & Gains ({livreurs.length})</p>
+                <p className="m-0 text-xs font-bold text-emerald-800">À récupérer : {fmtPrix(totalARecuperer)}</p>
               </div>
-              <span className="text-xl font-bold text-primary">›</span>
+              <span className="text-xl font-bold text-emerald-700">›</span>
             </button>
           )}
         </div>
@@ -709,7 +712,14 @@ export default function PageAdmin() {
                             </a>
                           </div>
                         </td>
-                        <td className="py-3 pr-3 whitespace-nowrap font-extrabold text-primary">{fmtPrix(c.total)}</td>
+                        <td className="py-3 pr-3 whitespace-nowrap">
+                          <div className="font-extrabold text-primary">{fmtPrix(c.total)}</div>
+                          {Number(c.part_admin ?? 0) > 0 && (
+                            <div className={`text-[10px] font-extrabold ${c.regle_admin ? 'text-muted' : 'text-emerald-700'}`}>
+                              {c.regle_admin ? '✅ Réglé' : `Ta part : +${fmtPrix(Number(c.part_admin))}`}
+                            </div>
+                          )}
+                        </td>
                         <td className="py-3 pr-3">
                           {user.role === 'admin' ? (
                             <div className="flex flex-col gap-1.5">
@@ -874,8 +884,16 @@ export default function PageAdmin() {
       {/* ONGLET CLIENTS CRM */}
       {onglet === 'clients' && <ClientsPanel clients={clients} campagnes={campagnes} onReload={() => chargerTout(user.role)} mode={mode} />}
 
-      {/* ONGLET LIVREURS */}
-      {onglet === 'livreurs' && <LivreursPanel livreurs={livreurs} onReload={() => chargerTout(user.role)} mode={mode} />}
+      {/* ONGLET LIVREURS & GAINS */}
+      {onglet === 'livreurs' && (
+        <LivreursPanel
+          livreurs={livreurs}
+          bilan={bilanLivreurs}
+          totalARecuperer={totalARecuperer}
+          onReload={() => chargerTout(user.role)}
+          mode={mode}
+        />
+      )}
 
       {/* ONGLET RESTAURANTS */}
       {onglet === 'restaurants' && <RestaurantsPanel gestions={restaurants} onReload={() => chargerTout(user.role)} mode={mode} />}

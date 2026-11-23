@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  calculerPartAdmin,
   enregistrerClientCRM,
   fusionnerDonneesResto,
   gererAdmin,
@@ -337,5 +338,40 @@ describe('gererAdmin & suiviPublic', () => {
     expect(d.notifications.whatsappLivreurUrl).toContain('https://wa.me/21655111222');
     expect(emailsEnvoyes.some((e) => e.to === 'livreur@livraison.tn' && e.subject.includes('ABC123'))).toBe(true);
     expect(emailsEnvoyes.some((e) => e.to === 'client@livraison.tn' && e.subject.includes('ABC123'))).toBe(true);
+  });
+
+  it('calculerPartAdmin calcule correctement fixe et pourcentage, et /api/admin/reglement solde les courses', async () => {
+    expect(calculerPartAdmin(20, 'fixe', 1.5)).toBe(1.5);
+    expect(calculerPartAdmin(20, 'pourcent', 10)).toBe(2);
+    expect(calculerPartAdmin(13.5, 'pourcent', 8)).toBe(1.08);
+
+    const subId = '22222222-2222-4222-8222-222222222222';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.includes('/auth/v1/user')) return Response.json({ id: 'u-admin', email: 'admin@livraison.tn' });
+      if (url.includes('/rest/v1/profiles')) {
+        return Response.json([{ id: 'u-admin', email: 'admin@livraison.tn', role: 'admin', nom: 'Admin', actif: true }]);
+      }
+      if (url.includes('/rest/v1/commandes') && method === 'PATCH') {
+        return Response.json([{ id: 'c1', part_admin: '1.000' }, { id: 'c2', part_admin: '1.500' }]);
+      }
+      return Response.json([]);
+    });
+
+    const r = await gererAdmin(
+      new Request('https://site.test/api/admin/reglement', {
+        method: 'POST',
+        headers: { cookie: 'liv_session=tok', 'content-type': 'application/json' },
+        body: JSON.stringify({ livreur_id: subId }),
+      }),
+      ENV_SB,
+      LIVREUR,
+      'reglement',
+    );
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    expect(d.nb_reglees).toBe(2);
+    expect(d.montant_regle).toBe(2.5);
   });
 });

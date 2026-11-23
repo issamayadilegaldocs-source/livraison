@@ -67,8 +67,20 @@ export type LivreurGestion = {
   vehicule: string | null;
   actif: boolean;
   disponible: boolean;
+  commission_type: 'fixe' | 'pourcent';
+  commission_valeur: number;
   notes: string | null;
   created_at?: string;
+};
+
+export type BilanLivreur = {
+  livreur_id: string;
+  nb_livrees_total: number;
+  nb_livrees_aujourdhui: number;
+  nb_non_reglees: number;
+  ca_total: number;
+  a_recuperer: number;
+  deja_recupere: number;
 };
 
 export type PlatOverride = {
@@ -132,7 +144,19 @@ export type CommandeSuivi = {
   livreur_id: string | null;
   livreur_nom: string | null;
   user_id: string | null;
+  part_admin?: number;
+  regle_admin?: boolean;
+  regle_admin_at?: string | null;
 };
+
+/** Calcule la part qui revient au livreur Admin sur une commande livrée par un sous-livreur. */
+export function calculerPartAdmin(totalCommande: number, type: 'fixe' | 'pourcent', valeur: number): number {
+  const v = Math.max(0, Number(valeur) || 0);
+  if (type === 'pourcent') {
+    return Math.round(Math.max(0, Number(totalCommande) || 0) * (Math.min(100, v) / 100) * 1000) / 1000;
+  }
+  return Math.round(v * 1000) / 1000;
+}
 
 const COOKIE_SESSION = 'liv_session';
 const enc = encodeURIComponent;
@@ -743,6 +767,8 @@ const AdminLivreurSchema = z.object({
   vehicule: z.string().trim().max(60).optional().or(z.literal('')),
   actif: z.boolean().optional(),
   disponible: z.boolean().optional(),
+  commission_type: z.enum(['fixe', 'pourcent']).optional(),
+  commission_valeur: z.number().min(0).max(500).optional(),
   notes: z.string().trim().max(500).optional().or(z.literal('')),
 });
 
@@ -952,26 +978,32 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
   if (section === 'stats' && req.method === 'GET') {
     if (admin.role === 'livreur') {
       if (!monLivreur) {
-        return json({ stats: { totalCommandes: 0, enCours: 0, livrees: 0, chiffreAffaires: 0, totalClients: 0, clientsAvecEmail: 0, livreursActifs: 0, livreursDisponibles: 0, restosCustom: 0, restosDesactives: 0 }, monLivreur: null });
+        return json({ stats: { totalCommandes: 0, enCours: 0, livrees: 0, chiffreAffaires: 0, aRecupererEquipe: 0, aRendreAdmin: 0, totalClients: 0, clientsAvecEmail: 0, livreursActifs: 0, livreursDisponibles: 0, restosCustom: 0, restosDesactives: 0 }, monLivreur: null });
       }
-      const cmdRes = await restFetch(sb, `commandes?livreur_id=eq.${enc(monLivreur.id)}&select=statut,total&limit=500`);
-      const cmds = cmdRes.ok ? ((await cmdRes.json()) as { statut: StatutCommande; total: number | string }[]) : [];
+      const cmdRes = await restFetch(sb, `commandes?livreur_id=eq.${enc(monLivreur.id)}&select=statut,total,part_admin,regle_admin&limit=500`);
+      const cmds = cmdRes.ok ? ((await cmdRes.json()) as { statut: StatutCommande; total: number | string; part_admin?: number | string; regle_admin?: boolean }[]) : [];
       const enCours = cmds.filter((c) => c.statut !== 'livree' && c.statut !== 'annulee').length;
       const livrees = cmds.filter((c) => c.statut === 'livree').length;
       const chiffreAffaires = Number(cmds.filter((c) => c.statut !== 'annulee').reduce((s, c) => s + Number(c.total), 0).toFixed(3));
+      const aRendreAdmin = Number(
+        cmds
+          .filter((c) => c.statut === 'livree' && !c.regle_admin)
+          .reduce((s, c) => s + Number(c.part_admin ?? 0), 0)
+          .toFixed(3),
+      );
       return json({
-        stats: { totalCommandes: cmds.length, enCours, livrees, chiffreAffaires, totalClients: 0, clientsAvecEmail: 0, livreursActifs: 1, livreursDisponibles: monLivreur.disponible ? 1 : 0, restosCustom: 0, restosDesactives: 0 },
+        stats: { totalCommandes: cmds.length, enCours, livrees, chiffreAffaires, aRecupererEquipe: 0, aRendreAdmin, totalClients: 0, clientsAvecEmail: 0, livreursActifs: 1, livreursDisponibles: monLivreur.disponible ? 1 : 0, restosCustom: 0, restosDesactives: 0 },
         monLivreur,
       });
     }
 
     const [cmdRes, cliRes, livRes, restoRes] = await Promise.all([
-      restFetch(sb, 'commandes?select=statut,total&limit=1000'),
+      restFetch(sb, 'commandes?select=statut,total,part_admin,regle_admin&limit=1000'),
       restFetch(sb, 'clients_crm?select=id,email,marketing_email,marketing_whatsapp&limit=1000'),
       restFetch(sb, 'livreurs?select=id,actif,disponible&limit=200'),
       restFetch(sb, 'restaurants_gestion?select=slug,source,actif&limit=500'),
     ]);
-    const cmds = cmdRes.ok ? ((await cmdRes.json()) as { statut: StatutCommande; total: number | string }[]) : [];
+    const cmds = cmdRes.ok ? ((await cmdRes.json()) as { statut: StatutCommande; total: number | string; part_admin?: number | string; regle_admin?: boolean }[]) : [];
     const clis = cliRes.ok ? ((await cliRes.json()) as { id: string; email: string | null; marketing_email: boolean; marketing_whatsapp: boolean }[]) : [];
     const livs = livRes.ok ? ((await livRes.json()) as { id: string; actif: boolean; disponible: boolean }[]) : [];
     const restos = restoRes.ok ? ((await restoRes.json()) as { slug: string; source: string; actif: boolean }[]) : [];
@@ -979,12 +1011,20 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
     const enCours = cmds.filter((c) => c.statut !== 'livree' && c.statut !== 'annulee').length;
     const livrees = cmds.filter((c) => c.statut === 'livree').length;
     const chiffreAffaires = Number(cmds.filter((c) => c.statut !== 'annulee').reduce((s, c) => s + Number(c.total), 0).toFixed(3));
+    const aRecupererEquipe = Number(
+      cmds
+        .filter((c) => c.statut === 'livree' && !c.regle_admin)
+        .reduce((s, c) => s + Number(c.part_admin ?? 0), 0)
+        .toFixed(3),
+    );
     return json({
       stats: {
         totalCommandes: cmds.length,
         enCours,
         livrees,
         chiffreAffaires,
+        aRecupererEquipe,
+        aRendreAdmin: 0,
         totalClients: clis.length,
         clientsAvecEmail: clis.filter((c) => Boolean(c.email)).length,
         livreursActifs: livs.filter((l) => l.actif).length,
@@ -997,6 +1037,7 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
 
   // --- COMMANDES ---
   if (section === 'commandes') {
+    const champsCmd = 'id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,client_telephone,client_email,adresse,note,total,resto_slug,livreur_id,livreur_nom,user_id,part_admin,regle_admin,regle_admin_at';
     if (req.method === 'GET') {
       const u = new URL(req.url);
       const statut = u.searchParams.get('statut');
@@ -1005,14 +1046,14 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
         if (!monLivreur) return json({ commandes: [], monLivreur: null });
         const res = await restFetch(
           sb,
-          `commandes?livreur_id=eq.${enc(monLivreur.id)}&select=id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,client_telephone,client_email,adresse,note,total,resto_slug,livreur_id,livreur_nom,user_id&order=creee.desc&limit=100${filtreStatut}`,
+          `commandes?livreur_id=eq.${enc(monLivreur.id)}&select=${champsCmd}&order=creee.desc&limit=100${filtreStatut}`,
         );
         if (!res.ok) return err(500, 'Erreur lecture commandes.');
         return json({ commandes: await res.json(), monLivreur });
       }
       const res = await restFetch(
         sb,
-        `commandes?select=id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,client_telephone,client_email,adresse,note,total,resto_slug,livreur_id,livreur_nom,user_id&order=creee.desc&limit=100${filtreStatut}`,
+        `commandes?select=${champsCmd}&order=creee.desc&limit=100${filtreStatut}`,
       );
       if (!res.ok) return err(500, 'Erreur lecture commandes.');
       return json({ commandes: await res.json() });
@@ -1045,6 +1086,7 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
           const moiLiv = await trouverMonLivreur(sb, admin);
           patch.livreur_id = moiLiv?.id ?? null;
           patch.livreur_nom = moiLiv?.nom ?? (admin.nom || livreur.nom);
+          patch.part_admin = 0;
           if (!nouveauStatut && cur.statut === 'nouvelle') nouveauStatut = 'confirmee';
         } else if (parsed.data.livreur_id !== undefined) {
           patch.livreur_id = parsed.data.livreur_id;
@@ -1053,8 +1095,19 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
             const lrows = lr.ok ? ((await lr.json().catch(() => [])) as LivreurGestion[]) : [];
             livreurAffecte = lrows[0] ?? null;
             patch.livreur_nom = livreurAffecte?.nom ?? parsed.data.livreur_nom ?? null;
+            // Si affectée à un sous-livreur (pas le compte admin lui-même), on calcule la part Admin !
+            if (livreurAffecte && livreurAffecte.user_id !== admin.id) {
+              patch.part_admin = calculerPartAdmin(
+                Number(cur.total),
+                livreurAffecte.commission_type ?? 'fixe',
+                Number(livreurAffecte.commission_valeur ?? 1),
+              );
+            } else {
+              patch.part_admin = 0;
+            }
           } else {
             patch.livreur_nom = null;
+            patch.part_admin = 0;
           }
         } else if (parsed.data.livreur_nom !== undefined) {
           patch.livreur_nom = parsed.data.livreur_nom;
@@ -1067,6 +1120,13 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
         patch.fin = nouveauStatut === 'livree' || nouveauStatut === 'annulee' ? now : null;
         hist.push({ statut: nouveauStatut, at: now });
         patch.historique_statuts = hist;
+        // Quand un sous-livreur passe la commande en 'livree', s'assurer que part_admin est bien calculée
+        if (nouveauStatut === 'livree' && patch.part_admin === undefined && !Number(cur.part_admin ?? 0)) {
+          const livObj = monLivreur ?? (cur.livreur_id ? await restFetch(sb, `livreurs?id=eq.${enc(cur.livreur_id)}&select=*&limit=1`).then((r) => (r.ok ? r.json() : [])).then((a: LivreurGestion[]) => a[0] ?? null).catch(() => null) : null);
+          if (livObj && (admin.role === 'livreur' || livObj.user_id !== admin.id)) {
+            patch.part_admin = calculerPartAdmin(Number(cur.total), livObj.commission_type ?? 'fixe', Number(livObj.commission_valeur ?? 1));
+          }
+        }
       }
 
       const updRes = await restFetch(
@@ -1239,12 +1299,40 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
     return json({ canal: 'whatsapp', nb_destinataires: liens.length, liens });
   }
 
-  // --- LIVREURS ---
+  // --- LIVREURS + BILAN DES GAINS ADMIN ---
   if (section === 'livreurs') {
     if (req.method === 'GET') {
-      const res = await restFetch(sb, 'livreurs?select=*&order=actif.desc,nom.asc');
-      if (!res.ok) return err(500, 'Erreur lecture livreurs.');
-      return json({ livreurs: await res.json() });
+      const [livRes, cmdRes] = await Promise.all([
+        restFetch(sb, 'livreurs?select=*&order=actif.desc,nom.asc'),
+        restFetch(sb, 'commandes?statut=eq.livree&livreur_id=not.is.null&select=livreur_id,total,part_admin,regle_admin,fin,creee&limit=2000'),
+      ]);
+      if (!livRes.ok) return err(500, 'Erreur lecture livreurs.');
+      const livreursListe = (await livRes.json()) as LivreurGestion[];
+      const livrees = cmdRes.ok
+        ? ((await cmdRes.json()) as { livreur_id: string; total: number | string; part_admin?: number | string; regle_admin?: boolean; fin?: string | null; creee: string }[])
+        : [];
+      const aujourdhui = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Tunis' }).format(new Date());
+      const bilan: Record<string, BilanLivreur> = {};
+      for (const l of livreursListe) {
+        bilan[l.id] = { livreur_id: l.id, nb_livrees_total: 0, nb_livrees_aujourdhui: 0, nb_non_reglees: 0, ca_total: 0, a_recuperer: 0, deja_recupere: 0 };
+      }
+      for (const c of livrees) {
+        const b = bilan[c.livreur_id];
+        if (!b) continue;
+        b.nb_livrees_total += 1;
+        const d = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Tunis' }).format(new Date(c.fin || c.creee));
+        if (d === aujourdhui) b.nb_livrees_aujourdhui += 1;
+        b.ca_total = Number((b.ca_total + Number(c.total || 0)).toFixed(3));
+        const part = Number(c.part_admin ?? 0);
+        if (c.regle_admin) {
+          b.deja_recupere = Number((b.deja_recupere + part).toFixed(3));
+        } else {
+          if (part > 0) b.nb_non_reglees += 1;
+          b.a_recuperer = Number((b.a_recuperer + part).toFixed(3));
+        }
+      }
+      const totalARecuperer = Number(Object.values(bilan).reduce((s, b) => s + b.a_recuperer, 0).toFixed(3));
+      return json({ livreurs: livreursListe, bilan, totalARecuperer });
     }
 
     if (req.method === 'POST' || req.method === 'PATCH') {
@@ -1279,6 +1367,8 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
         vehicule: parsed.data.vehicule || null,
         actif: parsed.data.actif ?? true,
         disponible: parsed.data.disponible ?? true,
+        ...(parsed.data.commission_type !== undefined ? { commission_type: parsed.data.commission_type } : {}),
+        ...(parsed.data.commission_valeur !== undefined ? { commission_valeur: parsed.data.commission_valeur } : {}),
         notes: parsed.data.notes || null,
         updated_at: new Date().toISOString(),
       };
@@ -1308,6 +1398,24 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
       if (!res.ok) return err(500, 'Suppression impossible.');
       return json({ ok: true });
     }
+  }
+
+  // --- RÈGLEMENT DE CAISSE D'UN SOUS-LIVREUR (POST /api/admin/reglement) ---
+  if (section === 'reglement' && req.method === 'POST') {
+    const body = (await req.json().catch(() => null)) as { livreur_id?: unknown } | null;
+    const idLiv = typeof body?.livreur_id === 'string' ? body.livreur_id : '';
+    if (!/^[0-9a-f-]{36}$/i.test(idLiv)) return err(400, 'Livreur invalide.');
+    const now = new Date().toISOString();
+    const res = await restFetch(
+      sb,
+      `commandes?livreur_id=eq.${enc(idLiv)}&statut=eq.livree&regle_admin=eq.false&select=id,part_admin`,
+      { method: 'PATCH', body: JSON.stringify({ regle_admin: true, regle_admin_at: now }) },
+      { 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    );
+    if (!res.ok) return err(500, 'Impossible d’enregistrer le règlement.');
+    const maj = (await res.json()) as { id: string; part_admin?: number | string }[];
+    const montant_regle = Number(maj.reduce((s, r) => s + Number(r.part_admin ?? 0), 0).toFixed(3));
+    return json({ ok: true, nb_reglees: maj.length, montant_regle });
   }
 
   // --- RESTAURANTS ---

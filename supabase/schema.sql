@@ -151,10 +151,14 @@ create table if not exists public.livreurs (
   vehicule text,
   actif boolean not null default true,
   disponible boolean not null default true,
+  commission_type text not null default 'fixe',
+  commission_valeur numeric(10, 3) not null default 1.000,
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint livreurs_telephone_chk check (telephone ~ '^[0-9]{8,15}$')
+  constraint livreurs_telephone_chk check (telephone ~ '^[0-9]{8,15}$'),
+  constraint livreurs_commission_type_chk check (commission_type in ('fixe', 'pourcent')),
+  constraint livreurs_commission_val_chk check (commission_valeur >= 0)
 );
 
 create table if not exists public.clients_crm (
@@ -187,7 +191,10 @@ alter table public.commandes
   add column if not exists livreur_id uuid references public.livreurs(id) on delete set null,
   add column if not exists livreur_nom text,
   add column if not exists statut_updated_at timestamptz not null default now(),
-  add column if not exists historique_statuts jsonb not null default '[]'::jsonb;
+  add column if not exists historique_statuts jsonb not null default '[]'::jsonb,
+  add column if not exists part_admin numeric(10, 3) not null default 0,
+  add column if not exists regle_admin boolean not null default false,
+  add column if not exists regle_admin_at timestamptz;
 
 create table if not exists public.restaurants_gestion (
   slug text primary key,
