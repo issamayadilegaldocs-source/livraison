@@ -279,7 +279,7 @@ describe('config du livreur (/api/config, /api/etat, effet sur la commande)', ()
     expect(resto).toContain('name="ct_resto"');
     expect(resto).not.toContain('name="commission"'); // plus de commission sur la page d'un plat
   });
-  it('page de config : « Mettre par défaut » = formule Zigzag ; case décochée = aucun', async () => {
+  it('page de config : « Mettre par défaut » = formule standard ; case décochée = aucun', async () => {
     await page({ action: 'frais-service', defaut: '1' });
     expect((await etat()).fraisService).toEqual({ pourcent: 8, min: 0.8, max: 5 });
     await page({ action: 'frais-service', fs_actif: 'on', fs_pourcent: '5', fs_min: '1', fs_max: '3' });

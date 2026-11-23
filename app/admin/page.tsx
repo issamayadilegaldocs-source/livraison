@@ -115,6 +115,7 @@ export default function PageAdmin() {
   const [notifierEmail, setNotifierEmail] = useState(true);
   const [majId, setMajId] = useState<string | null>(null);
   const [switchBusy, setSwitchBusy] = useState<string | null>(null);
+  const [notifBanner, setNotifBanner] = useState<{ texte: string; whatsappUrl?: string } | null>(null);
 
   // Détection auto PC vs Téléphone + préférence sauvegardée
   useEffect(() => {
@@ -147,10 +148,10 @@ export default function PageAdmin() {
     const reqs = [
       fetch('/api/admin/stats', { credentials: 'same-origin' }),
       fetch('/api/admin/commandes', { credentials: 'same-origin' }),
-      fetch('/api/admin/reglages', { credentials: 'same-origin' }),
     ];
     if (role === 'admin') {
       reqs.push(
+        fetch('/api/admin/reglages', { credentials: 'same-origin' }),
         fetch('/api/admin/clients', { credentials: 'same-origin' }),
         fetch('/api/admin/livreurs', { credentials: 'same-origin' }),
         fetch('/api/admin/restaurants', { credentials: 'same-origin' }),
@@ -175,6 +176,7 @@ export default function PageAdmin() {
       .then((d) => {
         if (d?.user && (d.user.role === 'admin' || d.user.role === 'livreur')) {
           setUser(d.user);
+          if (d.user.role === 'livreur') setOnglet('commandes');
           return chargerTout(d.user.role);
         }
       })
@@ -207,6 +209,7 @@ export default function PageAdmin() {
         return setErrLogin('Ce compte est un compte client. Connectez-vous avec un compte administrateur.');
       }
       setUser(d.user);
+      if (d.user.role === 'livreur') setOnglet('commandes');
       await chargerTout(d.user.role);
     } catch {
       setErrLogin('Erreur réseau.');
@@ -221,15 +224,32 @@ export default function PageAdmin() {
     window.location.reload();
   }
 
-  async function majCommande(id: string, patch: { statut?: StatutCommande; livreur_id?: string | null; livreur_nom?: string | null }) {
+  async function majCommande(
+    id: string,
+    patch: { statut?: StatutCommande; livreur_id?: string | null; livreur_nom?: string | null; prendre_moi_meme?: boolean },
+  ) {
     setMajId(id);
+    setNotifBanner(null);
     try {
-      await fetch('/api/admin/commandes', {
+      const res = await fetch('/api/admin/commandes', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ id, ...patch, notifier_client: Boolean(patch.statut && notifierEmail) }),
+        body: JSON.stringify({ id, ...patch, notifier_client: notifierEmail }),
       });
+      const d = await res.json().catch(() => null);
+      if (res.ok && d?.commande) {
+        const n = d.notifications ?? {};
+        const infos: string[] = [];
+        if (patch.prendre_moi_meme) infos.push(`Commande N° ${d.commande.ref} prise en charge par vous`);
+        else if (patch.livreur_id) infos.push(`Commande N° ${d.commande.ref} affectée à ${d.commande.livreur_nom}`);
+        else if (patch.statut) infos.push(`Commande N° ${d.commande.ref} mise à jour`);
+        if (n.livreurEmail === 'sent') infos.push('email livreur envoyé');
+        if (n.livreurPush > 0) infos.push(`push livreur (${n.livreurPush})`);
+        if (n.clientEmail === 'sent') infos.push('email client envoyé');
+        if (n.adminEmail === 'sent') infos.push('admin notifié');
+        setNotifBanner({ texte: `✓ ${infos.join(' · ')}`, whatsappUrl: n.whatsappLivreurUrl });
+      }
       if (user) await chargerTout(user.role);
     } finally {
       setMajId(null);
@@ -406,14 +426,27 @@ export default function PageAdmin() {
         </div>
       )}
 
+      {/* Bandeau dédié sous-livreur : activer ses alertes Push téléphone */}
+      {user.role === 'livreur' && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-3xl border border-amber-300 bg-amber-50 p-4">
+          <div>
+            <p className="m-0 text-sm font-extrabold text-ink">🛵 Espace sous-livreur — Vos commandes affectées</p>
+            <p className="m-0 text-xs text-muted">Activez les alertes Push sur votre téléphone pour sonner dès qu’une commande vous est affectée (en plus de l’email).</p>
+          </div>
+          <a href="/api/push" className="inline-flex h-10 items-center rounded-xl bg-amber-500 px-4 text-xs font-extrabold text-white">
+            🔔 Activer mes alertes Push
+          </a>
+        </div>
+      )}
+
       {/* Navigation par onglets en haut (Mode PC) */}
       {mode === 'pc' && (
         <div className="no-scrollbar flex gap-1.5 overflow-x-auto rounded-2xl bg-black/5 p-1">
           {([
-            ['commandes', `📦 Commandes (${stats?.enCours ?? commandes.length})`],
-            ['reglages', '⚙️ Réglages & Tarifs'],
+            ['commandes', `📦 ${user.role === 'livreur' ? 'Mes commandes' : 'Commandes'} (${stats?.enCours ?? commandes.length})`],
             ...(user.role === 'admin'
               ? ([
+                  ['reglages', '⚙️ Réglages & Tarifs'],
                   ['clients', `👥 Clients CRM (${clients.length})`],
                   ['livreurs', `🛵 Livreurs (${livreurs.length})`],
                   ['restaurants', '🍽️ Restaurants'],
@@ -434,8 +467,8 @@ export default function PageAdmin() {
         </div>
       )}
 
-      {/* ÉCRAN ACCUEIL SIMPLIFIÉ (Mode Téléphone) */}
-      {mode === 'mobile' && onglet === 'accueil' && (
+      {/* ÉCRAN ACCUEIL SIMPLIFIÉ (Mode Téléphone, admin uniquement) */}
+      {mode === 'mobile' && user.role === 'admin' && onglet === 'accueil' && (
         <div className="flex flex-col gap-3">
           {/* Alerte commandes en cours */}
           <button
@@ -579,6 +612,19 @@ export default function PageAdmin() {
       {/* ONGLET COMMANDES */}
       {onglet === 'commandes' && (
         <div className="flex flex-col gap-4">
+          {notifBanner && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-emerald-50 px-4 py-3 text-xs font-extrabold text-emerald-900">
+              <span>{notifBanner.texte}</span>
+              <div className="flex items-center gap-2">
+                {notifBanner.whatsappUrl && (
+                  <a href={notifBanner.whatsappUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-[#25D366] px-3 py-1.5 text-xs font-extrabold text-white">
+                    💬 Envoyer aussi au livreur sur WhatsApp
+                  </a>
+                )}
+                <button type="button" onClick={() => setNotifBanner(null)} className="text-muted">✕</button>
+              </div>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="search"
@@ -665,21 +711,35 @@ export default function PageAdmin() {
                         </td>
                         <td className="py-3 pr-3 whitespace-nowrap font-extrabold text-primary">{fmtPrix(c.total)}</td>
                         <td className="py-3 pr-3">
-                          <select
-                            disabled={busy}
-                            value={c.livreur_id ?? ''}
-                            onChange={(e) => {
-                              const idLiv = e.target.value || null;
-                              const liv = livreurs.find((x) => x.id === idLiv);
-                              majCommande(c.id, { livreur_id: idLiv, livreur_nom: liv?.nom ?? null });
-                            }}
-                            className="h-8 rounded-lg border border-black/10 bg-white px-2 text-[11px] font-bold"
-                          >
-                            <option value="">Non assigné</option>
-                            {livreurs.filter((l) => l.actif).map((l) => (
-                              <option key={l.id} value={l.id}>{l.nom}</option>
-                            ))}
-                          </select>
+                          {user.role === 'admin' ? (
+                            <div className="flex flex-col gap-1.5">
+                              <select
+                                disabled={busy}
+                                value={c.livreur_id ?? ''}
+                                onChange={(e) => {
+                                  const idLiv = e.target.value || null;
+                                  const liv = livreurs.find((x) => x.id === idLiv);
+                                  majCommande(c.id, { livreur_id: idLiv, livreur_nom: liv?.nom ?? null });
+                                }}
+                                className="h-8 rounded-lg border border-black/10 bg-white px-2 text-[11px] font-bold"
+                              >
+                                <option value="">Non assigné</option>
+                                {livreurs.filter((l) => l.actif).map((l) => (
+                                  <option key={l.id} value={l.id}>{l.nom}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => majCommande(c.id, { prendre_moi_meme: true })}
+                                className="h-7 rounded-lg bg-primary/10 px-2 text-[10px] font-extrabold text-primary hover:bg-primary/20"
+                              >
+                                🙋 Prendre moi-même
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="font-bold text-ink">🛵 {c.livreur_nom || 'Vous'}</span>
+                          )}
                         </td>
                         <td className="py-3 text-right">
                           <div className="mb-1.5 flex justify-end">
@@ -751,6 +811,34 @@ export default function PageAdmin() {
                       </a>
                     </div>
 
+                    {user.role === 'admin' && (
+                      <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-2xl bg-[#f6f7fb] p-2.5">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => majCommande(c.id, { prendre_moi_meme: true })}
+                          className="h-9 rounded-xl bg-primary px-3 text-xs font-extrabold text-white"
+                        >
+                          🙋 Prendre
+                        </button>
+                        <select
+                          disabled={busy}
+                          value={c.livreur_id ?? ''}
+                          onChange={(e) => {
+                            const idLiv = e.target.value || null;
+                            const liv = livreurs.find((x) => x.id === idLiv);
+                            majCommande(c.id, { livreur_id: idLiv, livreur_nom: liv?.nom ?? null });
+                          }}
+                          className="h-9 min-w-[140px] flex-1 rounded-xl border border-black/10 bg-white px-2.5 text-xs font-bold"
+                        >
+                          <option value="">Affecter un sous-livreur…</option>
+                          {livreurs.filter((l) => l.actif).map((l) => (
+                            <option key={l.id} value={l.id}>🛵 {l.nom}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     <div className="mt-2.5 grid grid-cols-3 gap-1.5">
                       {STATUTS.map((s) => (
                         <button
@@ -792,8 +880,8 @@ export default function PageAdmin() {
       {/* ONGLET RESTAURANTS */}
       {onglet === 'restaurants' && <RestaurantsPanel gestions={restaurants} onReload={() => chargerTout(user.role)} mode={mode} />}
 
-      {/* BARRE DE NAVIGATION FIXE EN BAS (Mode Téléphone) */}
-      {mode === 'mobile' && (
+      {/* BARRE DE NAVIGATION FIXE EN BAS (Mode Téléphone, admin) */}
+      {mode === 'mobile' && user.role === 'admin' && (
         <nav
           aria-label="Navigation mobile admin"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white/95 backdrop-blur pb-[env(safe-area-inset-bottom)]"

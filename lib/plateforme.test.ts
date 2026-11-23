@@ -269,4 +269,73 @@ describe('gererAdmin & suiviPublic', () => {
     expect(dPatch.pauseActive).toBe(true);
     expect(dPatch.effectif.annonce).toBe('Pause 15 min');
   });
+
+  it('affectation à un sous-livreur envoie un email détaillé et un sous-livreur ne peut modifier que ses commandes', async () => {
+    const emailsEnvoyes: { to: string; subject: string }[] = [];
+    const envMail: Env = { ...ENV_SB, RESEND_API_KEY: 're_test_123' };
+    const subId = '22222222-2222-4222-8222-222222222222';
+    const cmd = {
+      id: '9000000000001-ABC123',
+      ref: 'ABC123',
+      type: 'repas',
+      statut: 'nouvelle',
+      creee: '2026-11-23T10:00:00.000Z',
+      fin: null,
+      statut_updated_at: null,
+      historique_statuts: [],
+      titre: 'Chap Lab',
+      lignes: ['1× Makloub'],
+      client_nom: 'Sami',
+      client_telephone: '21622111222',
+      client_email: 'client@livraison.tn',
+      adresse: 'Route Gremda',
+      note: null,
+      total: 15,
+      resto_slug: 'chap-lab',
+      livreur_id: null,
+      livreur_nom: null,
+      user_id: null,
+    };
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.includes('api.resend.com/emails')) {
+        const b = JSON.parse(String(init?.body));
+        emailsEnvoyes.push({ to: b.to, subject: b.subject });
+        return Response.json({ id: 'mail_1' });
+      }
+      if (url.includes('/auth/v1/user')) return Response.json({ id: 'u-admin', email: 'admin@livraison.tn' });
+      if (url.includes('/rest/v1/profiles')) {
+        return Response.json([{ id: 'u-admin', email: 'admin@livraison.tn', role: 'admin', nom: 'Admin', actif: true }]);
+      }
+      if (url.includes('/rest/v1/commandes') && method === 'GET') return Response.json([cmd]);
+      if (url.includes('/rest/v1/livreurs') && method === 'GET') {
+        return Response.json([{ id: subId, user_id: 'u-sub', nom: 'Karim Livreur', telephone: '21655111222', email: 'livreur@livraison.tn', ville: 'Sfax', vehicule: 'Moto', actif: true, disponible: true, notes: null }]);
+      }
+      if (url.includes('/rest/v1/commandes') && method === 'PATCH') {
+        const patch = JSON.parse(String(init?.body));
+        return Response.json([{ ...cmd, ...patch }]);
+      }
+      if (url.includes('/rest/v1/push_subscriptions')) return Response.json([]);
+      return Response.json([]);
+    });
+
+    const r = await gererAdmin(
+      new Request('https://site.test/api/admin/commandes', {
+        method: 'PATCH',
+        headers: { cookie: 'liv_session=tok', 'content-type': 'application/json' },
+        body: JSON.stringify({ id: cmd.id, livreur_id: subId, notifier_client: true }),
+      }),
+      envMail,
+      LIVREUR,
+      'commandes',
+    );
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    expect(d.commande.livreur_nom).toBe('Karim Livreur');
+    expect(d.notifications.whatsappLivreurUrl).toContain('https://wa.me/21655111222');
+    expect(emailsEnvoyes.some((e) => e.to === 'livreur@livraison.tn' && e.subject.includes('ABC123'))).toBe(true);
+    expect(emailsEnvoyes.some((e) => e.to === 'client@livraison.tn' && e.subject.includes('ABC123'))).toBe(true);
+  });
 });

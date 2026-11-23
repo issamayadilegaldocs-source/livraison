@@ -8,7 +8,7 @@ import { htmlClientCommande, htmlColis, htmlCommande, texteClientCommande } from
 import { calculerColis, ColisSchema, messageColis } from './colis';
 import type { Livreur } from './livreur';
 import { CommissionSchema, PromoSchema, vueClient, type Commission } from './commission';
-import { FRAIS_SERVICE_ZIGZAG, FraisServiceSchema } from './frais-service';
+import { FRAIS_SERVICE_STANDARD, FraisServiceSchema } from './frais-service';
 import { ColisConfSchema } from './colis';
 import { AnnonceSchema, PourboiresSchema, SupplementSchema } from './regles-livreur';
 import { LivraisonGratuiteSchema } from './livraison-gratuite';
@@ -299,15 +299,15 @@ export async function pageCommandes(req: Request, env: Env, livreur: Livreur): P
 
 const MAX_APPAREILS = 5;
 
-/** Alerte push aux téléphones du livreur. Ne bloque jamais la commande : toute erreur est seulement journalisée. */
-async function alerterPush(req: Request, env: Env, livreur: Livreur): Promise<number> {
+/** Alerte push aux téléphones associés à un numéro donné (admin ou sous-livreur). Ne bloque jamais la commande. */
+export async function alerterPushTelephone(req: Request, env: Env, telephone: string): Promise<number> {
   const store = stockage(env);
-  if (!env.VAPID_JWK || !store) return 0;
+  if (!env.VAPID_JWK || !store || !telephone) return 0;
   try {
-    const liste = await store.lireAbonnementsPush(livreur.whatsapp);
+    const liste = await store.lireAbonnementsPush(telephone);
     if (!liste.length) return 0;
     const { envoyes, expires } = await envoyerPush(liste, env.VAPID_JWK, `https://${new URL(req.url).hostname}`);
-    if (expires.length) await store.retirerAbonnementsPush(livreur.whatsapp, expires);
+    if (expires.length) await store.retirerAbonnementsPush(telephone, expires);
     return envoyes;
   } catch (e) {
     console.error('[push]', e);
@@ -315,8 +315,12 @@ async function alerterPush(req: Request, env: Env, livreur: Livreur): Promise<nu
   }
 }
 
+async function alerterPush(req: Request, env: Env, livreur: Livreur): Promise<number> {
+  return alerterPushTelephone(req, env, livreur.whatsapp);
+}
+
 /**
- * /api/push?cle=… : GET = page d'activation des alertes (ou `&manifest=1` : manifeste pour l'écran d'accueil) ;
+ * /api/push?cle=… (ou session Admin / Sous-livreur) : GET = page d'activation des alertes ;
  * POST {endpoint} = enregistre ce téléphone, POST {test: true} = envoie une alerte test.
  */
 export async function pagePush(req: Request, env: Env, livreur: Livreur): Promise<Response> {
@@ -324,7 +328,14 @@ export async function pagePush(req: Request, env: Env, livreur: Livreur): Promis
   const url = new URL(req.url);
   const cle = url.searchParams.get('cle') ?? '';
   const store = stockage(env);
-  if (!(await accesLivreur(req, env, cle)) || !store) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  const parCle = await cleValide(cle, env.CONFIG_CLE);
+  const sessionUser = !parCle ? await verifierUtilisateur(env, req).catch(() => null) : null;
+  const autorise = parCle || (sessionUser !== null && (sessionUser.role === 'admin' || sessionUser.role === 'livreur'));
+  if (!autorise || !store) return new Response('Page introuvable.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+
+  // Un sous-livreur connecté enregistre son téléphone sous SON propre numéro pour recevoir ses affectations.
+  const cibleTel = sessionUser?.role === 'livreur' && sessionUser.telephone ? sessionUser.telephone : livreur.whatsapp;
+  const cibleNom = sessionUser?.role === 'livreur' && sessionUser.nom ? sessionUser.nom : livreur.nom;
 
   if (req.method === 'POST') {
     let body: { endpoint?: unknown; test?: unknown };
@@ -333,19 +344,19 @@ export async function pagePush(req: Request, env: Env, livreur: Livreur): Promis
     } catch {
       return erreur(400, 'Demande invalide.');
     }
-    if (body.test === true) return Response.json({ ok: true, envoyes: await alerterPush(req, env, livreur) });
+    if (body.test === true) return Response.json({ ok: true, envoyes: await alerterPushTelephone(req, env, cibleTel) });
     if (!endpointValide(body.endpoint)) return erreur(400, 'Téléphone non reconnu.');
-    await store.ajouterAbonnementPush(livreur.whatsapp, body.endpoint, MAX_APPAREILS);
+    await store.ajouterAbonnementPush(cibleTel, body.endpoint, MAX_APPAREILS);
     return Response.json({ ok: true });
   }
 
   const page = `/api/push?cle=${encodeURIComponent(cle)}`;
   if (url.searchParams.get('manifest') === '1')
     return Response.json(
-      { name: `${livreur.nom} — alertes commandes`, short_name: 'Alertes', start_url: page, scope: '/api/push', display: 'standalone', background_color: '#f6f7fb', theme_color: livreur.couleur, icons: [{ src: '/icone-alertes.png', sizes: '512x512', type: 'image/png' }] },
+      { name: `${cibleNom} — alertes commandes`, short_name: 'Alertes', start_url: page, scope: '/api/push', display: 'standalone', background_color: '#f6f7fb', theme_color: livreur.couleur, icons: [{ src: '/icone-alertes.png', sizes: '512x512', type: 'image/png' }] },
       { headers: { 'content-type': 'application/manifest+json' } },
     );
-  return new Response(htmlPush({ nom: livreur.nom, couleur: livreur.couleur, cle, pub: env.VAPID_JWK ? cleVapidPublique(env.VAPID_JWK) : null }), {
+  return new Response(htmlPush({ nom: cibleNom, couleur: livreur.couleur, cle, pub: env.VAPID_JWK ? cleVapidPublique(env.VAPID_JWK) : null }), {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex' },
   });
 }
@@ -457,8 +468,8 @@ export function appliquerFormulaire(c: Config, form: URLSearchParams, menu: Donn
     return typeof f === 'string' ? f : appliquerFormulaire(f, avec(form, 'frais-service'), menu, maj);
   }
   if (action === 'frais-service') {
-    // « Mettre par défaut » = formule Zigzag ; « Pas de frais de service » = case décochée.
-    if (form.get('defaut') === '1') return { ...c, fraisService: FRAIS_SERVICE_ZIGZAG };
+    // « Mettre par défaut » = formule standard ; « Pas de frais de service » = case décochée.
+    if (form.get('defaut') === '1') return { ...c, fraisService: FRAIS_SERVICE_STANDARD };
     if (form.get('fs_actif') !== 'on') return { ...c, fraisService: null };
     const r = FraisServiceSchema.safeParse({ pourcent: arrondi(nombre(form.get('fs_pourcent'))), min: arrondi(nombre(form.get('fs_min'))), max: arrondi(nombre(form.get('fs_max'))) });
     return r.success ? { ...c, fraisService: r.data } : 'Frais de service invalides : pourcentage entre 0 et 100, minimum ≤ maximum.';
@@ -1071,14 +1082,14 @@ ${livraisonGratuite ? '<button name="fg" value="off" class="rouge">Arrêter la l
 <div class="astuce"><b>💡 À quoi ça sert ?</b><p>C’est un petit supplément que le client paie <b style="display:inline">en plus de la livraison</b>, comme sur les applications de livraison. Cet argent est <b style="display:inline">pour vous</b>. Le client le voit sur une ligne à part.</p></div>
 <form method="post" class="carte" id="f-fs">${champCle}<input type="hidden" name="action" value="frais-service">
 <label class="interr"><input type="checkbox" name="fs_actif" id="fs-actif"${fraisService ? ' checked' : ''}> Ajouter des frais de service</label>
-<label class="champ2">Pourcentage des plats<span class="u"><input type="number" inputmode="decimal" step="0.5" min="0" max="100" name="fs_pourcent" id="fs-pct" value="${nb((fraisService ?? FRAIS_SERVICE_ZIGZAG).pourcent)}"><span>%</span></span><span class="aide">Exemple : 8 % → pour 10 DT de repas, le client paie 0,800 DT de frais.</span></label>
+<label class="champ2">Pourcentage des plats<span class="u"><input type="number" inputmode="decimal" step="0.5" min="0" max="100" name="fs_pourcent" id="fs-pct" value="${nb((fraisService ?? FRAIS_SERVICE_STANDARD).pourcent)}"><span>%</span></span><span class="aide">Exemple : 8 % → pour 10 DT de repas, le client paie 0,800 DT de frais.</span></label>
 <div class="grille">
-<label class="champ2">Jamais moins de<span class="u"><input type="number" inputmode="decimal" step="0.05" min="0" name="fs_min" id="fs-min" value="${nb((fraisService ?? FRAIS_SERVICE_ZIGZAG).min)}"><span>DT</span></span><span class="aide">Pour les petites commandes.</span></label>
-<label class="champ2">Jamais plus de<span class="u"><input type="number" inputmode="decimal" step="0.05" min="0" name="fs_max" id="fs-max" value="${nb((fraisService ?? FRAIS_SERVICE_ZIGZAG).max)}"><span>DT</span></span><span class="aide">Pour les grosses commandes.</span></label>
+<label class="champ2">Jamais moins de<span class="u"><input type="number" inputmode="decimal" step="0.05" min="0" name="fs_min" id="fs-min" value="${nb((fraisService ?? FRAIS_SERVICE_STANDARD).min)}"><span>DT</span></span><span class="aide">Pour les petites commandes.</span></label>
+<label class="champ2">Jamais plus de<span class="u"><input type="number" inputmode="decimal" step="0.05" min="0" name="fs_max" id="fs-max" value="${nb((fraisService ?? FRAIS_SERVICE_STANDARD).max)}"><span>DT</span></span><span class="aide">Pour les grosses commandes.</span></label>
 </div>
 <div class="exemple"><span class="t">Ce que le client paie en frais</span><span id="fs-ex"></span></div>
 <button>Enregistrer</button>
-<button type="submit" name="defaut" value="1" class="sec">Remettre la formule Zigzag (8 %, min 0,8, max 5)</button>
+<button type="submit" name="defaut" value="1" class="sec">Remettre la formule standard (8 %, min 0,8, max 5)</button>
 </form>
 </div>
 

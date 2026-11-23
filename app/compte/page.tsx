@@ -206,7 +206,7 @@ export default function PageCompte() {
       });
       const d = await res.json();
       if (!res.ok) return setErreur(d.erreur ?? 'Connexion échouée.');
-      if (d.user?.role === 'admin') {
+      if (d.user?.role === 'admin' || d.user?.role === 'livreur') {
         window.location.href = '/admin';
         return;
       }

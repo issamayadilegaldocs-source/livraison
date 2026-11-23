@@ -103,6 +103,35 @@ async function main() {
     adresse: 'Route Gremda km 3, Sfax',
   });
 
+  const sousLivreurId = await assurerUtilisateur({
+    email: 'livreur@livraison.tn',
+    password: 'Livreur2026!',
+    role: 'livreur',
+    nom: 'Karim Livreur',
+    telephone: '21655111222',
+    adresse: 'Sfax',
+  });
+
+  // Sous-livreur de test dans public.livreurs
+  const subLivRes = await fetch(`${URL_SB}/rest/v1/livreurs?on_conflict=telephone`, {
+    method: 'POST',
+    headers: headers({ Prefer: 'resolution=merge-duplicates,return=representation' }),
+    body: JSON.stringify({
+      user_id: sousLivreurId,
+      nom: 'Karim Livreur',
+      telephone: '21655111222',
+      email: 'livreur@livraison.tn',
+      ville: 'Sfax',
+      vehicule: 'Scooter',
+      actif: true,
+      disponible: true,
+      notes: 'Sous-livreur de test',
+      updated_at: new Date().toISOString(),
+    }),
+  });
+  if (!subLivRes.ok) throw new Error(`upsert sous-livreur ${subLivRes.status}: ${await subLivRes.text()}`);
+  console.log('✓ Sous-livreur prêt : Karim Livreur (livreur@livraison.tn)');
+
   // Livreur principal (Ahmed Livraison)
   const livRes = await fetch(`${URL_SB}/rest/v1/livreurs?on_conflict=telephone`, {
     method: 'POST',

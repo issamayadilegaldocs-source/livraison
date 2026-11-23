@@ -7,7 +7,7 @@ import { normaliserTelephone } from './commande';
 import { ConfigSchema, pauseEnCours, reglages } from './config';
 import type { Livreur } from './livreur';
 import { headersSupabase, stockage, type EnvStockage } from './supabase';
-import type { DonneesResto, Env } from './serveur';
+import { alerterPushTelephone, type DonneesResto, type Env } from './serveur';
 import type { Horaire, Plat } from './catalogue';
 
 export type Role = 'client' | 'livreur' | 'admin';
@@ -714,6 +714,7 @@ const AdminMajCommandeSchema = z.object({
   statut: z.enum(STATUTS_COMMANDE).optional(),
   livreur_id: z.string().uuid().nullable().optional(),
   livreur_nom: z.string().max(100).nullable().optional(),
+  prendre_moi_meme: z.boolean().optional(),
   notifier_client: z.boolean().optional(),
 });
 
@@ -737,6 +738,7 @@ const AdminLivreurSchema = z.object({
   nom: z.string().trim().min(2).max(100),
   telephone: z.string().trim().min(8).max(30),
   email: z.string().trim().email().max(160).optional().or(z.literal('')),
+  password: z.string().min(6, 'Mot de passe : 6 caractères minimum.').max(100).optional().or(z.literal('')),
   ville: z.string().trim().min(2).max(80).default('Sfax'),
   vehicule: z.string().trim().max(60).optional().or(z.literal('')),
   actif: z.boolean().optional(),
@@ -789,16 +791,127 @@ function personnaliserMessage(modele: string, client: { nom: string; nb_commande
     .replace(/\{commandes\}/gi, String(client.nb_commandes));
 }
 
+const echapperHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const fmtDt = (n: number) => `${Number(n).toFixed(3).replace('.', ',')} DT`;
+
+/** Trouve la fiche `public.livreurs` d'un utilisateur connecté (admin ou sous-livreur). */
+async function trouverMonLivreur(sb: { url: string; cle: string }, user: ProfilUtilisateur): Promise<LivreurGestion | null> {
+  const q = user.telephone
+    ? `livreurs?or=(user_id.eq.${enc(user.id)},telephone.eq.${enc(user.telephone)})&select=*&limit=1`
+    : `livreurs?user_id=eq.${enc(user.id)}&select=*&limit=1`;
+  const r = await restFetch(sb, q).catch(() => null);
+  if (!r || !r.ok) return null;
+  const rows = (await r.json().catch(() => [])) as LivreurGestion[];
+  return rows[0] ?? null;
+}
+
+/** Crée ou met à jour un compte Supabase Auth (rôle `livreur`) + profil pour un sous-livreur. */
+async function creerOuMajCompteLivreur(
+  sb: { url: string; cle: string },
+  data: { email: string; password: string; nom: string; telephone: string; actif: boolean },
+): Promise<{ userId: string } | { erreur: string }> {
+  const email = data.email.trim().toLowerCase();
+  const h = authAdminHeaders(sb.cle);
+  const listRes = await fetch(`${sb.url}/auth/v1/admin/users?page=1&per_page=200`, { headers: h }).catch(() => null);
+  if (!listRes || !listRes.ok) return { erreur: 'Impossible de contacter le service comptes.' };
+  const listData = (await listRes.json().catch(() => ({ users: [] }))) as { users?: { id: string; email?: string; app_metadata?: { role?: string } }[] };
+  const existant = (listData.users ?? []).find((u) => (u.email ?? '').toLowerCase() === email);
+
+  let userId: string;
+  if (existant) {
+    if (existant.app_metadata?.role === 'admin') {
+      return { erreur: 'Cet email appartient déjà à un administrateur.' };
+    }
+    userId = existant.id;
+    const upd = await fetch(`${sb.url}/auth/v1/admin/users/${userId}`, {
+      method: 'PUT',
+      headers: h,
+      body: JSON.stringify({ password: data.password, email_confirm: true, app_metadata: { role: 'livreur' }, user_metadata: { nom: data.nom } }),
+    });
+    if (!upd.ok) return { erreur: 'Impossible de mettre à jour le compte livreur.' };
+  } else {
+    const cre = await fetch(`${sb.url}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: h,
+      body: JSON.stringify({ email, password: data.password, email_confirm: true, app_metadata: { role: 'livreur' }, user_metadata: { nom: data.nom } }),
+    });
+    if (!cre.ok) return { erreur: 'Impossible de créer le compte livreur.' };
+    const created = (await cre.json()) as { id: string };
+    userId = created.id;
+  }
+
+  await restFetch(
+    sb,
+    'profiles?on_conflict=id',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        id: userId,
+        email,
+        role: 'livreur',
+        nom: data.nom,
+        telephone: data.telephone,
+        actif: data.actif,
+        marketing_opt_in: false,
+        updated_at: new Date().toISOString(),
+      }),
+    },
+    { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+  ).catch(() => {});
+
+  return { userId };
+}
+
+function detailsAffectationEmail(cmd: CommandeSuivi, livNom: string, origine: string, nomSite: string) {
+  const lignesTxt = (cmd.lignes ?? []).map((l) => `- ${l}`).join('\n');
+  const texte = [
+    `Bonjour ${livNom},`,
+    '',
+    `Une commande vous a été affectée sur ${nomSite} :`,
+    `N° ${cmd.ref} — ${cmd.titre}`,
+    `Montant à encaisser : ${fmtDt(cmd.total)}`,
+    '',
+    'Articles :',
+    lignesTxt,
+    '',
+    `Client : ${cmd.client_nom}`,
+    `Téléphone : +${cmd.client_telephone}`,
+    `Adresse : ${cmd.adresse}`,
+    ...(cmd.note ? [`Note : ${cmd.note}`] : []),
+    '',
+    `Gérer la commande : ${origine}/admin`,
+  ].join('\n');
+
+  const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;background:#f6f7fb;padding:16px;color:#111">
+<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:20px;padding:20px">
+<h2 style="margin:0 0 8px">🛵 Nouvelle commande affectée — N° ${echapperHtml(cmd.ref)}</h2>
+<p style="margin:0 0 12px;color:#555">Bonjour <b>${echapperHtml(livNom)}</b>, voici tous les détails :</p>
+<div style="background:#f6f7fb;border-radius:14px;padding:14px;margin-bottom:14px">
+<div style="font-size:17px;font-weight:800">${echapperHtml(cmd.titre)} — <span style="color:#1a6be0">${echapperHtml(fmtDt(cmd.total))}</span></div>
+<ul style="margin:8px 0 0;padding-left:18px">${(cmd.lignes ?? []).map((l) => `<li>${echapperHtml(l)}</li>`).join('')}</ul>
+</div>
+<p style="margin:0 0 6px"><b>👤 Client :</b> ${echapperHtml(cmd.client_nom)}</p>
+<p style="margin:0 0 6px"><b>📞 Téléphone :</b> <a href="tel:+${echapperHtml(cmd.client_telephone)}">+${echapperHtml(cmd.client_telephone)}</a></p>
+<p style="margin:0 0 6px"><b>📍 Adresse :</b> ${echapperHtml(cmd.adresse)}</p>
+${cmd.note ? `<p style="margin:0 0 12px"><b>📝 Note :</b> ${echapperHtml(cmd.note)}</p>` : ''}
+<a href="${echapperHtml(origine)}/admin" style="display:inline-block;margin-top:12px;background:#141a2b;color:#fff;text-decoration:none;font-weight:800;padding:12px 20px;border-radius:12px">Ouvrir mon espace livreur</a>
+</div></body></html>`;
+
+  return { texte, html };
+}
+
 export async function gererAdmin(req: Request, env: Env, livreur: Livreur, section: string): Promise<Response> {
   const sb = configSupabase(env);
   if (!sb) return err(503, 'Supabase non configuré.');
   const admin = await verifierUtilisateur(env, req);
   if (!admin) return err(401, 'Connexion requise.');
   if (admin.role !== 'admin' && admin.role !== 'livreur') return err(403, 'Accès réservé à l’administrateur.');
-  // Seul l'admin a accès aux sections CRM, livreurs, restaurants et notifications.
-  if (admin.role !== 'admin' && section !== 'commandes' && section !== 'stats' && section !== 'reglages') {
+  // Seul l'admin a accès aux sections CRM, livreurs, restaurants, réglages et notifications.
+  if (admin.role !== 'admin' && section !== 'commandes' && section !== 'stats') {
     return err(403, 'Accès réservé à l’administrateur.');
   }
+
+  const monLivreur = admin.role === 'livreur' ? await trouverMonLivreur(sb, admin) : null;
 
   // --- REGLAGES LIVREUR (Pause, Horaires, Frais, Colis, Promos, Coupons, Commission, Annonce, Pourboires...) ---
   if (section === 'reglages') {
@@ -837,6 +950,21 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
 
   // --- STATS ---
   if (section === 'stats' && req.method === 'GET') {
+    if (admin.role === 'livreur') {
+      if (!monLivreur) {
+        return json({ stats: { totalCommandes: 0, enCours: 0, livrees: 0, chiffreAffaires: 0, totalClients: 0, clientsAvecEmail: 0, livreursActifs: 0, livreursDisponibles: 0, restosCustom: 0, restosDesactives: 0 }, monLivreur: null });
+      }
+      const cmdRes = await restFetch(sb, `commandes?livreur_id=eq.${enc(monLivreur.id)}&select=statut,total&limit=500`);
+      const cmds = cmdRes.ok ? ((await cmdRes.json()) as { statut: StatutCommande; total: number | string }[]) : [];
+      const enCours = cmds.filter((c) => c.statut !== 'livree' && c.statut !== 'annulee').length;
+      const livrees = cmds.filter((c) => c.statut === 'livree').length;
+      const chiffreAffaires = Number(cmds.filter((c) => c.statut !== 'annulee').reduce((s, c) => s + Number(c.total), 0).toFixed(3));
+      return json({
+        stats: { totalCommandes: cmds.length, enCours, livrees, chiffreAffaires, totalClients: 0, clientsAvecEmail: 0, livreursActifs: 1, livreursDisponibles: monLivreur.disponible ? 1 : 0, restosCustom: 0, restosDesactives: 0 },
+        monLivreur,
+      });
+    }
+
     const [cmdRes, cliRes, livRes, restoRes] = await Promise.all([
       restFetch(sb, 'commandes?select=statut,total&limit=1000'),
       restFetch(sb, 'clients_crm?select=id,email,marketing_email,marketing_whatsapp&limit=1000'),
@@ -873,6 +1001,15 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
       const u = new URL(req.url);
       const statut = u.searchParams.get('statut');
       const filtreStatut = statut && (STATUTS_COMMANDE as readonly string[]).includes(statut) ? `&statut=eq.${enc(statut)}` : '';
+      if (admin.role === 'livreur') {
+        if (!monLivreur) return json({ commandes: [], monLivreur: null });
+        const res = await restFetch(
+          sb,
+          `commandes?livreur_id=eq.${enc(monLivreur.id)}&select=id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,client_telephone,client_email,adresse,note,total,resto_slug,livreur_id,livreur_nom,user_id&order=creee.desc&limit=100${filtreStatut}`,
+        );
+        if (!res.ok) return err(500, 'Erreur lecture commandes.');
+        return json({ commandes: await res.json(), monLivreur });
+      }
       const res = await restFetch(
         sb,
         `commandes?select=id,ref,type,statut,creee,fin,statut_updated_at,historique_statuts,titre,lignes,client_nom,client_telephone,client_email,adresse,note,total,resto_slug,livreur_id,livreur_nom,user_id&order=creee.desc&limit=100${filtreStatut}`,
@@ -890,18 +1027,47 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
       const cur = rows[0];
       if (!cur) return err(404, 'Commande introuvable.');
 
+      // Un sous-livreur ne peut mettre à jour que les commandes qui lui sont affectées (et uniquement le statut).
+      if (admin.role === 'livreur') {
+        if (!monLivreur || cur.livreur_id !== monLivreur.id) {
+          return err(403, 'Cette commande ne vous est pas affectée.');
+        }
+      }
+
       const now = new Date().toISOString();
       const hist = Array.isArray(cur.historique_statuts) ? [...cur.historique_statuts] : [];
       const patch: Record<string, unknown> = {};
-      if (parsed.data.statut && parsed.data.statut !== cur.statut) {
-        patch.statut = parsed.data.statut;
+      let nouveauStatut: StatutCommande | undefined = parsed.data.statut;
+      let livreurAffecte: LivreurGestion | null = null;
+
+      if (admin.role === 'admin') {
+        if (parsed.data.prendre_moi_meme) {
+          const moiLiv = await trouverMonLivreur(sb, admin);
+          patch.livreur_id = moiLiv?.id ?? null;
+          patch.livreur_nom = moiLiv?.nom ?? (admin.nom || livreur.nom);
+          if (!nouveauStatut && cur.statut === 'nouvelle') nouveauStatut = 'confirmee';
+        } else if (parsed.data.livreur_id !== undefined) {
+          patch.livreur_id = parsed.data.livreur_id;
+          if (parsed.data.livreur_id) {
+            const lr = await restFetch(sb, `livreurs?id=eq.${enc(parsed.data.livreur_id)}&select=*&limit=1`);
+            const lrows = lr.ok ? ((await lr.json().catch(() => [])) as LivreurGestion[]) : [];
+            livreurAffecte = lrows[0] ?? null;
+            patch.livreur_nom = livreurAffecte?.nom ?? parsed.data.livreur_nom ?? null;
+          } else {
+            patch.livreur_nom = null;
+          }
+        } else if (parsed.data.livreur_nom !== undefined) {
+          patch.livreur_nom = parsed.data.livreur_nom;
+        }
+      }
+
+      if (nouveauStatut && nouveauStatut !== cur.statut) {
+        patch.statut = nouveauStatut;
         patch.statut_updated_at = now;
-        patch.fin = parsed.data.statut === 'livree' || parsed.data.statut === 'annulee' ? now : null;
-        hist.push({ statut: parsed.data.statut, at: now });
+        patch.fin = nouveauStatut === 'livree' || nouveauStatut === 'annulee' ? now : null;
+        hist.push({ statut: nouveauStatut, at: now });
         patch.historique_statuts = hist;
       }
-      if (parsed.data.livreur_id !== undefined) patch.livreur_id = parsed.data.livreur_id;
-      if (parsed.data.livreur_nom !== undefined) patch.livreur_nom = parsed.data.livreur_nom;
 
       const updRes = await restFetch(
         sb,
@@ -912,17 +1078,63 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
       if (!updRes.ok) return err(500, 'Impossible de mettre à jour la commande.');
       const [maj] = (await updRes.json()) as CommandeSuivi[];
 
-      // Notification email optionnelle au client lors d'un changement de statut
-      if (parsed.data.notifier_client && parsed.data.statut && maj.client_email) {
-        const lib = LIBELLES_STATUT[parsed.data.statut];
-        await envoyerEmail(
-          maj.client_email,
-          `Mise à jour commande N° ${maj.ref} — ${lib}`,
-          `Bonjour ${maj.client_nom},\n\nVotre commande N° ${maj.ref} (${maj.titre}) est maintenant : ${lib}.${maj.livreur_nom ? `\nLivreur : ${maj.livreur_nom}` : ''}\n\nSuivez votre commande sur votre espace client.\n${livreur.nom}`,
-          env,
-        ).catch(() => {});
+      const origine = new URL(req.url).origin;
+      const notifications: { livreurEmail?: string; livreurPush?: number; clientEmail?: string; adminEmail?: string; whatsappLivreurUrl?: string } = {};
+      const taches: Promise<unknown>[] = [];
+
+      // 1. Affectation à un sous-livreur : email complet + notification Push sur son téléphone !
+      const nouvelleAffectation = livreurAffecte && livreurAffecte.id !== cur.livreur_id;
+      if (nouvelleAffectation && livreurAffecte) {
+        const { texte, html } = detailsAffectationEmail(maj, livreurAffecte.nom, origine, livreur.nom);
+        notifications.whatsappLivreurUrl = `https://wa.me/${livreurAffecte.telephone}?text=${encodeURIComponent(texte)}`;
+        if (livreurAffecte.email) {
+          taches.push(
+            envoyerEmail(
+              livreurAffecte.email,
+              `🛵 Nouvelle commande affectée N° ${maj.ref} — ${maj.titre} (${fmtDt(maj.total)})`,
+              texte,
+              env,
+              html,
+            ).then((st) => { notifications.livreurEmail = st; }).catch(() => {}),
+          );
+        }
+        taches.push(
+          alerterPushTelephone(req, env, livreurAffecte.telephone)
+            .then((n) => { notifications.livreurPush = n; })
+            .catch(() => {}),
+        );
       }
-      return json({ commande: maj });
+
+      // 2. Notification email au client lors d'un changement de statut ou d'une affectation livreur
+      const notifierClient = parsed.data.notifier_client !== false;
+      if (notifierClient && maj.client_email && (nouveauStatut || nouvelleAffectation)) {
+        const lib = LIBELLES_STATUT[maj.statut];
+        taches.push(
+          envoyerEmail(
+            maj.client_email,
+            `Mise à jour commande N° ${maj.ref} — ${lib}`,
+            `Bonjour ${maj.client_nom},\n\nVotre commande N° ${maj.ref} (${maj.titre}) est maintenant : ${lib}.${maj.livreur_nom ? `\nLivreur en charge : ${maj.livreur_nom}` : ''}\n\nSuivez votre commande en direct : ${origine}/compte?ref=${encodeURIComponent(maj.ref)}\n\n${livreur.nom}`,
+            env,
+          ).then((st) => { notifications.clientEmail = st; }).catch(() => {}),
+        );
+      }
+
+      // 3. Si un sous-livreur change le statut d'une commande : notifier l'Admin (email + push) !
+      if (admin.role === 'livreur' && nouveauStatut && nouveauStatut !== cur.statut) {
+        const lib = LIBELLES_STATUT[nouveauStatut];
+        taches.push(
+          envoyerEmail(
+            livreur.email,
+            `🛵 Suivi livreur : N° ${maj.ref} → ${lib} (${monLivreur?.nom ?? admin.nom})`,
+            `Le livreur ${monLivreur?.nom ?? admin.nom} a passé la commande N° ${maj.ref} (${maj.titre}, client ${maj.client_nom}, ${fmtDt(maj.total)}) au statut : ${lib}.\n\nTableau de bord : ${origine}/admin`,
+            env,
+          ).then((st) => { notifications.adminEmail = st; }).catch(() => {}),
+        );
+        taches.push(alerterPushTelephone(req, env, livreur.whatsapp).catch(() => {}));
+      }
+
+      await Promise.all(taches);
+      return json({ commande: maj, notifications });
     }
   }
 
@@ -1042,7 +1254,24 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
       const tel = normaliserTelephone(parsed.data.telephone);
       if (!tel) return err(400, 'Téléphone invalide (format tunisien 8 chiffres).');
 
+      let userId: string | undefined;
+      let compteCree = false;
+      if (parsed.data.password) {
+        if (!parsed.data.email) return err(400, 'Un email est requis pour créer le compte de connexion du sous-livreur.');
+        const resCompte = await creerOuMajCompteLivreur(sb, {
+          email: parsed.data.email,
+          password: parsed.data.password,
+          nom: parsed.data.nom,
+          telephone: tel,
+          actif: parsed.data.actif ?? true,
+        });
+        if ('erreur' in resCompte) return err(400, resCompte.erreur);
+        userId = resCompte.userId;
+        compteCree = true;
+      }
+
       const payload = {
+        ...(userId ? { user_id: userId } : {}),
         nom: parsed.data.nom,
         telephone: tel,
         email: parsed.data.email || null,
@@ -1069,7 +1298,7 @@ export async function gererAdmin(req: Request, env: Env, livreur: Livreur, secti
           );
       if (!res.ok) return err(500, 'Impossible d’enregistrer le livreur.');
       const [row] = await res.json();
-      return json({ livreur: row }, parsed.data.id ? 200 : 201);
+      return json({ livreur: row, compteCree }, parsed.data.id ? 200 : 201);
     }
 
     if (req.method === 'DELETE') {

@@ -355,7 +355,7 @@ export default function ReglagesPanel({
                 onClick={() => { setFsActif(true); setFsPct('8'); setFsMin('0.8'); setFsMax('5'); }}
                 className="text-[11px] font-bold text-primary underline"
               >
-                Formule Zigzag (8%)
+                Formule standard (8%)
               </button>
             </div>
             {fsActif && (

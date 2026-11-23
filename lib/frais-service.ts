@@ -1,4 +1,4 @@
-// Frais de service (comme Zigzag) : pourcentage du panier, borné [min, max]. Ils s'ajoutent à la livraison et
+// Frais de service : pourcentage du panier, borné [min, max]. Ils s'ajoutent à la livraison et
 // reviennent au livreur. Pur : partagé navigateur (aperçu) et Function (calcul qui fait foi).
 import { z } from 'zod';
 
@@ -7,8 +7,8 @@ export const FraisServiceSchema = z
   .refine((f) => f.min <= f.max, 'le minimum doit être ≤ au maximum');
 export type FraisService = z.infer<typeof FraisServiceSchema>;
 
-/** Formule Zigzag (1 000 commandes réelles) : clamp(8 % × panier, 0,8, 5). Bouton « Mettre par défaut ». */
-export const FRAIS_SERVICE_ZIGZAG: FraisService = { pourcent: 8, min: 0.8, max: 5 };
+/** Formule standard : clamp(8 % × panier, 0,8, 5). Bouton « Mettre par défaut ». */
+export const FRAIS_SERVICE_STANDARD: FraisService = { pourcent: 8, min: 0.8, max: 5 };
 
 /** `panier` = plats payés par le client (hors livraison). Sans réglage : 0. Arrondi au millime. */
 export function calculerFraisService(conf: FraisService | null | undefined, panier: number): number {

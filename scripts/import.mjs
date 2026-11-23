@@ -6,7 +6,7 @@ import { importer } from '../lib/import-dump.mjs';
 
 const [dir, ville] = process.argv.slice(2);
 if (!dir || !ville || !/^[a-z0-9-]+$/.test(ville)) {
-  console.error('Usage : npm run import -- <dossier-dump> <ville>  (ex. C:/zigzag-data/sfax-backup/2026-10-14 sfax)');
+  console.error('Usage : npm run import -- <dossier-dump> <ville>  (ex. C:/catalogue-data/sfax-backup/2026-10-14 sfax)');
   process.exit(1);
 }
 const stats = importer(path.resolve(dir), path.resolve('villes', ville));

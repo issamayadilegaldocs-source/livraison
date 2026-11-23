@@ -22,8 +22,8 @@ Le nom du dossier client sert aussi de **nom de projet Pages** : minuscules, chi
 1. **Ville** (une seule fois par ville) : importer le dump, préparer et envoyer les images.
 
    ```bash
-   npm run import -- C:/zigzag-data/sfax-backup/2026-10-14 sfax   # → villes/sfax/
-   npm run images -- sfax C:/zigzag-data/sfax-backup/images         # → media/ (webp, relançable)
+   npm run import -- C:/catalogue-data/sfax-backup/2026-10-14 sfax   # → villes/sfax/
+   npm run images -- sfax C:/catalogue-data/sfax-backup/images         # → media/ (webp, relançable)
    npm run envoyer-images                                         # → bucket R2, n'envoie que ce qui manque
    ```
 
@@ -61,7 +61,7 @@ Le nom du dossier client sert aussi de **nom de projet Pages** : minuscules, chi
      3. Ouvrir `https://api.telegram.org/bot<TOKEN>/getUpdates` : le `chat.id` du message est son `chatId`.
      4. `npx wrangler pages secret put TELEGRAM_BOT_TOKEN --project-name <client>`, puis redéployer avec le `telegram` dans `livreur.json`.
      5. Pour l'appel : le livreur écrit `/start` à `@CallMeBot_txtbot` une fois.
-   - `fraisService` (optionnel) : frais de service pour le livreur, en plus de la livraison : `{ "pourcent": 8, "min": 0.8, "max": 5 }` (formule Zigzag : % des plats, borné). Absent = aucun frais. Le livreur le règle ensuite sur sa page de config (bouton « Mettre par défaut » = formule Zigzag). Le client voit une ligne « Frais de service » ; l'email du livreur l'ajoute à son gain.
+   - `fraisService` (optionnel) : frais de service pour le livreur, en plus de la livraison : `{ "pourcent": 8, "min": 0.8, "max": 5 }` (formule standard : % des plats, borné). Absent = aucun frais. Le livreur le règle ensuite sur sa page de config (bouton « Mettre par défaut » = formule standard). Le client voit une ligne « Frais de service » ; l'email du livreur l'ajoute à son gain.
    - `service` et `livraison` sont les valeurs de départ : le livreur peut ensuite les changer lui-même sur sa page de config.
    - `email` reçoit la copie automatique des commandes. Il est intégré au code de la Function, jamais publié comme fichier.
    - **Frais de livraison** : `base + parKm × distance`, où la distance vaut la ligne droite resto → client multipliée par `facteurRoute` (1,3, pour approcher le trajet en ville). Le résultat est arrondi au 0,5 DT supérieur et borné entre `min` et `max`. Au-delà de `rayonMaxKm`, la commande est refusée. Exemple : 3 km à vol d'oiseau donnent 3,9 km, soit 1 + 1,95 = 2,95, donc **3,000 DT**.
@@ -112,7 +112,7 @@ Le nom du dossier client sert aussi de **nom de projet Pages** : minuscules, chi
    - **Fermer un resto** : bouton « Fermer ce resto / Rouvrir » sur la page du resto (Réglages › Plats, indisponible, fermer un resto).
    - **Tarif des colis** : son propre prix (départ, par km, minimum, maximum, distance), un supplément pour les colis moyens et grands, et un interrupteur pour prendre ou non les colis.
    - **Livraison gratuite** : un gros bouton « Mettre la livraison gratuite » (avec un montant minimum de commande facultatif) et « Arrêter ».
-   - **Frais de service** : case à cocher, pourcentage des plats, minimum, maximum, et un bouton « Mettre par défaut » (formule Zigzag : 8 %, min 0,8 DT, max 5 DT).
+   - **Frais de service** : case à cocher, pourcentage des plats, minimum, maximum, et un bouton « Mettre par défaut » (formule standard : 8 %, min 0,8 DT, max 5 DT).
    - **Prix des plats** : sur la page d'un plat, deux cases : le prix que **le resto lui demande maintenant** (le menu importé peut être périmé : c'est ce qu'il paie au resto) et le prix **que le client paie**. Il choisit un resto, met le prix **que le client paie** (le prix du resto reste celui du menu : c'est ce qu'il paie au resto, la différence est sa marge, affichée sur la page et dans l'email) ou coche « Indispo ». Les corrections sont propres à ce livreur. Ajouter un plat ou changer les options d'un plat n'est pas possible ici : il faut réimporter un dump récent.
 
    Si le lien fuite, génère une nouvelle clé, mets-la en secret, redéploie et envoie le nouveau lien : l'ancien ne marche plus. Ne réutilise jamais la même clé pour deux livreurs.

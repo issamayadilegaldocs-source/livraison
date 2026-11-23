@@ -45,7 +45,7 @@ function references(dataDir) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const [ville, src] = process.argv.slice(2);
   if (!ville || !src) {
-    console.error('Usage : npm run images -- <ville> <dossier-images-dump>  (ex. sfax C:/zigzag-data/sfax-backup/images)');
+    console.error('Usage : npm run images -- <ville> <dossier-images-dump>  (ex. sfax C:/catalogue-data/sfax-backup/images)');
     process.exit(1);
   }
   const out = 'media';
