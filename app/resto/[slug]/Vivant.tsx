@@ -32,16 +32,12 @@ export function MenuVivant({ horaires, service, livraison, fraisService, livrais
   const r = useReglages(slug);
   const urlMenu = `/menu-data/${slug}`;
   const urlLive = `/api/restos-live?slug=${encodeURIComponent(slug)}`;
-  const [gestion, setGestion] = useState<RestaurantGestion | null>(
-    () => lireCacheSync<{ restaurant?: RestaurantGestion }>(urlLive, 120_000)?.restaurant ?? null,
-  );
+  const [gestion, setGestion] = useState<RestaurantGestion | null>(null);
   const serviceEnVigueur = r ? (r.service ?? undefined) : service;
   const restoFerme = (r?.restosFermes.includes(slug) ?? false) || gestion?.actif === false;
   const arret = restoFerme ? t('Ce restaurant est indisponible pour le moment.') : m ? messageArret(serviceEnVigueur, r?.pause ?? false, m, r?.retour ?? undefined, t) : null;
-  // Menu : JSON statique /menu-data/<slug> mis en cache 10 min (navigation instantanée 0 ms au retour) + surcharges live admin.
-  const [menu, setMenu] = useState<{ categories: { id: number; nom: string }[]; plats: PlatVue[] } | null>(
-    () => lireCacheSync<{ categories: { id: number; nom: string }[]; plats: PlatVue[] }>(urlMenu, 600_000),
-  );
+  // Menu : JSON statique /menu-data/<slug> mis en cache 10 min (lu dans useEffect pour éviter tout mismatch d'hydratation) + surcharges live admin.
+  const [menu, setMenu] = useState<{ categories: { id: number; nom: string }[]; plats: PlatVue[] } | null>(null);
   const [erreur, setErreur] = useState(false);
   useEffect(() => {
     let actif = true;
@@ -55,9 +51,13 @@ export function MenuVivant({ horaires, service, livraison, fraisService, livrais
         else setErreur(true);
       });
     }
-    fetchCache<{ restaurant?: RestaurantGestion }>(urlLive, { ttlMs: 120_000 }).then((d) => {
-      if (actif && d?.restaurant) setGestion(d.restaurant);
-    });
+    const hitLive = lireCacheSync<{ restaurant?: RestaurantGestion }>(urlLive, 120_000);
+    if (hitLive?.restaurant) setGestion(hitLive.restaurant);
+    else {
+      fetchCache<{ restaurant?: RestaurantGestion }>(urlLive, { ttlMs: 120_000 }).then((d) => {
+        if (actif && d?.restaurant) setGestion(d.restaurant);
+      });
+    }
     return () => {
       actif = false;
     };

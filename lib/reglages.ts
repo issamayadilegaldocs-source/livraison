@@ -20,7 +20,8 @@ const DUREE_CACHE = 3 * 60_000;
  */
 export function useReglages(resto?: string): Reglages | null {
   const url = `/api/etat${resto ? `?resto=${encodeURIComponent(resto)}` : ''}`;
-  const [r, setR] = useState<Reglages | null>(() => lireCacheSync<Reglages>(url, DUREE_CACHE));
+  // Toujours null à l'hydratation (SSR statique) pour éviter l'erreur React #418 ; le cache est lu immédiatement dans useEffect.
+  const [r, setR] = useState<Reglages | null>(null);
 
   useEffect(() => {
     let actif = true;

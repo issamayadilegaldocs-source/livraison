@@ -12,12 +12,15 @@ type UserMini = {
 };
 
 export default function BoutonCompte() {
-  const [user, setUser] = useState<UserMini | null>(
-    () => lireCacheSync<{ user?: UserMini | null }>('/api/auth/me', 180_000)?.user ?? null,
-  );
+  const [user, setUser] = useState<UserMini | null>(null);
 
   useEffect(() => {
     let actif = true;
+    const hit = lireCacheSync<{ user?: UserMini | null }>('/api/auth/me', 180_000);
+    if (hit) {
+      setUser(hit.user ?? null);
+      return;
+    }
     fetchCache<{ user?: UserMini | null }>('/api/auth/me', { ttlMs: 180_000 }).then((d) => {
       if (actif && d) setUser(d.user ?? null);
     });
